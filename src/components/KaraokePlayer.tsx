@@ -87,10 +87,19 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const [isVocalCut, setIsVocalCut] = useState(true);
   const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
-  // Analyser Node Ref
+  // EQ パネル表示切り替え & EQ 値 (-12 ~ +12 dB)
+  const [showEqPanel, setShowEqPanel] = useState(false);
+  const [eqBass, setEqBass] = useState(0);
+  const [eqMid, setEqMid] = useState(0);
+  const [eqTreble, setEqTreble] = useState(0);
+
+  // EQ Node Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const bassFilterRef = useRef<BiquadFilterNode | null>(null);
+  const midFilterRef = useRef<BiquadFilterNode | null>(null);
+  const trebleFilterRef = useRef<BiquadFilterNode | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
 
   // オフライン高音質プリレンダリング処理
@@ -244,11 +253,11 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     };
   }, [audioUrl]);
 
-  // リアルタイム・グラフィックイコライザー（オーディオビジュアライザー）描画
+  // リアルタイム 3バンド EQ ＋ 分析ビジュアライザーの初期化
   useEffect(() => {
     if (isProcessing) return;
 
-    const setupVisualizer = () => {
+    const setupAudioNodes = () => {
       try {
         if (!audioCtxRef.current) {
           const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -256,26 +265,49 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         }
         const ctx = audioCtxRef.current;
 
+        if (!bassFilterRef.current) {
+          const b = ctx.createBiquadFilter();
+          b.type = 'lowshelf'; b.frequency.value = 100; b.gain.value = eqBass;
+          bassFilterRef.current = b;
+        }
+        if (!midFilterRef.current) {
+          const m = ctx.createBiquadFilter();
+          m.type = 'peaking'; m.frequency.value = 1000; m.Q.value = 1.0; m.gain.value = eqMid;
+          midFilterRef.current = m;
+        }
+        if (!trebleFilterRef.current) {
+          const t = ctx.createBiquadFilter();
+          t.type = 'highshelf'; t.frequency.value = 4000; t.gain.value = eqTreble;
+          trebleFilterRef.current = t;
+        }
+
         if (!analyserRef.current) {
           const analyser = ctx.createAnalyser();
-          analyser.fftSize = 64; // 32バー
+          analyser.fftSize = 64;
           analyser.smoothingTimeConstant = 0.8;
           analyserRef.current = analyser;
         }
 
         if (!sourceNodeRef.current && audioRef.current) {
           const sourceNode = ctx.createMediaElementSource(audioRef.current);
-          sourceNode.connect(analyserRef.current);
+          
+          // 配線: Source -> Bass EQ -> Mid EQ -> Treble EQ -> Analyser -> Destination
+          sourceNode.connect(bassFilterRef.current);
+          bassFilterRef.current.connect(midFilterRef.current);
+          midFilterRef.current.connect(trebleFilterRef.current);
+          trebleFilterRef.current.connect(analyserRef.current);
           analyserRef.current.connect(ctx.destination);
+          
           sourceNodeRef.current = sourceNode;
         }
       } catch (e) {
-        console.warn('Visualizer setup warning:', e);
+        console.warn('Audio nodes setup warning:', e);
       }
     };
 
-    setupVisualizer();
+    setupAudioNodes();
 
+    // Canvas 描画
     const canvas = canvasRef.current;
     if (!canvas) return;
     const canvasCtx = canvas.getContext('2d');
@@ -303,11 +335,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
       let x = 0;
 
       for (let i = 0; i < barCount; i++) {
-        // 音量値
         const barHeightPercent = isPlaying ? (dataArray[i] / 255) : 0.05;
         const barHeight = Math.max(4, barHeightPercent * height * 0.85);
 
-        // ネオングラデーション (ピンク -> パープル -> シアン)
         const gradient = canvasCtx.createLinearGradient(0, height, 0, 0);
         gradient.addColorStop(0, '#ec4899');
         gradient.addColorStop(0.5, '#a855f7');
@@ -317,7 +347,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         canvasCtx.shadowColor = '#ec4899';
         canvasCtx.shadowBlur = isPlaying ? 8 : 2;
 
-        // 角丸バー描画
         const radius = Math.min(barWidth / 2, 4);
         const y = height - barHeight;
 
@@ -343,6 +372,13 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     };
   }, [isProcessing, isPlaying]);
 
+  // ユーザーの EQ スライダー操作を動的にリアルタイム適用
+  useEffect(() => {
+    if (bassFilterRef.current) bassFilterRef.current.gain.value = eqBass;
+    if (midFilterRef.current) midFilterRef.current.gain.value = eqMid;
+    if (trebleFilterRef.current) trebleFilterRef.current.gain.value = eqTreble;
+  }, [eqBass, eqMid, eqTreble]);
+
   // ト書き除去
   const cleanLyrics = lyrics
     .map((line) => ({ ...line, text: line.text.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim() }))
@@ -350,6 +386,23 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   // 再生ソースの切り替え（カラオケ伴奏 ⇄ 原曲）
   const activeAudioSrc = isVocalCut ? (instBlobUrl || originalBlobUrl || audioUrl) : (originalBlobUrl || audioUrl);
+
+  // 原曲 ⇄ 伴奏 聞き比べ（切り替え時に再生時間を一発保持）
+  const handleToggleVocalCut = () => {
+    const cur = audioRef.current ? audioRef.current.currentTime : currentTime;
+    const playing = isPlaying;
+    
+    setIsVocalCut(!isVocalCut);
+    
+    setTimeout(() => {
+      if (audioRef.current) {
+        audioRef.current.currentTime = cur;
+        if (playing) {
+          audioRef.current.play().catch(() => {});
+        }
+      }
+    }, 50);
+  };
 
   const handleUserUnlockAndPlay = async () => {
     try {
@@ -428,25 +481,27 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
       {/* Header */}
       <header style={{ position: 'relative', zIndex: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(12px)', backgroundColor: 'rgba(15,23,42,0.7)' }}>
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
-        <div style={{ textAlign: 'center', maxWidth: '55%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ textAlign: 'center', maxWidth: '45%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v4.1.0 (Graphic EQ & Pre-Render)</span>
+          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v4.2.0 (EQ & AB Compare)</span>
         </div>
-        <button type="button" onClick={() => setIsVocalCut(!isVocalCut)} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: 'none', cursor: 'pointer', background: isVocalCut ? 'linear-gradient(90deg,#ec4899,#a855f7)' : '#475569', color: '#fff', boxShadow: isVocalCut ? '0 0 12px rgba(236,72,153,0.5)' : 'none' }}>
-          {isVocalCut ? '🎤 高音質伴奏: ON' : '🎤 原曲: OFF'}
+        
+        {/* 原曲 ⇄ 伴奏シームレス聞き比べボタン */}
+        <button type="button" onClick={handleToggleVocalCut} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: 'none', cursor: 'pointer', background: isVocalCut ? 'linear-gradient(90deg,#ec4899,#a855f7)' : '#38bdf8', color: '#fff', boxShadow: '0 0 12px rgba(236,72,153,0.5)', transition: 'all 0.2s' }}>
+          {isVocalCut ? '🎧 伴奏 (ボーカル切)' : '🎵 原曲 (聞き比べ中)'}
         </button>
       </header>
 
       {/* Lyrics & Visualizer Display */}
-      <div style={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 20px', textAlign: 'center' }}>
-        {bgImageUrl && <img src={bgImageUrl} alt="" style={{ width: '110px', height: '110px', borderRadius: '20px', objectFit: 'cover', boxShadow: '0 10px 30px rgba(236,72,153,0.3)', marginBottom: '24px', border: '2px solid rgba(255,255,255,0.2)' }} />}
+      <div style={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px 20px', textAlign: 'center' }}>
+        {bgImageUrl && <img src={bgImageUrl} alt="" style={{ width: '100px', height: '100px', borderRadius: '20px', objectFit: 'cover', boxShadow: '0 10px 30px rgba(236,72,153,0.3)', marginBottom: '16px', border: '2px solid rgba(255,255,255,0.2)' }} />}
         
-        {/* Real-time Graphic Equalizer Display (Canvas) */}
-        <div style={{ width: '100%', maxWidth: '360px', height: '48px', marginBottom: '20px', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', background: 'rgba(15,23,42,0.4)', borderRadius: '12px', padding: '6px 12px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)' }}>
-          <canvas ref={canvasRef} width={320} height={42} style={{ display: 'block' }} />
+        {/* Real-time Spectrum Equalizer Visualizer (Canvas) */}
+        <div style={{ width: '100%', maxWidth: '360px', height: '42px', marginBottom: '16px', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', background: 'rgba(15,23,42,0.4)', borderRadius: '12px', padding: '4px 10px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)' }}>
+          <canvas ref={canvasRef} width={320} height={36} style={{ display: 'block' }} />
         </div>
 
-        <div style={{ width: '100%', maxWidth: '560px', backgroundColor: 'rgba(15,23,42,0.75)', border: '1px solid rgba(236,72,153,0.3)', borderRadius: '24px', padding: '28px 20px', backdropFilter: 'blur(16px)', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', boxSizing: 'border-box' }}>
+        <div style={{ width: '100%', maxWidth: '560px', backgroundColor: 'rgba(15,23,42,0.75)', border: '1px solid rgba(236,72,153,0.3)', borderRadius: '24px', padding: '24px 20px', backdropFilter: 'blur(16px)', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', boxSizing: 'border-box' }}>
           <div style={{ minHeight: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {currentLine ? (
               <p style={{ fontSize: '26px', fontWeight: '900', margin: 0, lineHeight: '1.4', background: 'linear-gradient(90deg,#f472b6,#38bdf8,#fff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 2px 10px rgba(236,72,153,0.5))', transform: 'scale(1.05)', transition: 'all 0.2s cubic-bezier(0.175,0.885,0.32,1.275)' }}>{currentLine.text}</p>
@@ -463,31 +518,78 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         </div>
 
         {!isProcessing && !isAudioUnlocked && (
-          <button type="button" onClick={handleUserUnlockAndPlay} style={{ marginTop: '24px', padding: '16px 32px', background: 'linear-gradient(90deg,#ec4899,#a855f7)', color: '#fff', fontSize: '16px', fontWeight: 'bold', border: 'none', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 8px 25px rgba(236,72,153,0.5)' }}>
+          <button type="button" onClick={handleUserUnlockAndPlay} style={{ marginTop: '20px', padding: '16px 32px', background: 'linear-gradient(90deg,#ec4899,#a855f7)', color: '#fff', fontSize: '16px', fontWeight: 'bold', border: 'none', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 8px 25px rgba(236,72,153,0.5)' }}>
             🎤 タップしてカラオケスタート！
           </button>
         )}
       </div>
 
-      {/* Controls */}
-      <footer style={{ position: 'relative', zIndex: 10, padding: '20px 24px 32px', backgroundColor: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      {/* Controls & EQ Adjustment Panel */}
+      <footer style={{ position: 'relative', zIndex: 10, padding: '16px 20px 24px', backgroundColor: 'rgba(15,23,42,0.85)', backdropFilter: 'blur(20px)', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        
+        {/* EQ Customizer Panel */}
+        {showEqPanel && (
+          <div style={{ background: 'rgba(30,41,59,0.9)', padding: '14px 16px', borderRadius: '16px', border: '1px solid rgba(236,72,153,0.4)', display: 'flex', flexDirection: 'column', gap: '10px', backdropFilter: 'blur(10px)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#f472b6' }}>🎛️ 3バンド・イコライザー調整 (EQ)</span>
+              <button type="button" onClick={() => { setEqBass(0); setEqMid(0); setEqTreble(0); }} style={{ fontSize: '10px', background: '#475569', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer' }}>リセット</button>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', fontSize: '11px' }}>
+              {/* Bass */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
+                  <span>低音 (Bass)</span><span style={{ color: '#ec4899', fontWeight: 'bold' }}>{eqBass > 0 ? `+${eqBass}` : eqBass}dB</span>
+                </div>
+                <input type="range" min={-12} max={12} value={eqBass} onChange={(e) => setEqBass(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#ec4899' }} />
+              </div>
+
+              {/* Mid */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
+                  <span>中音 (Mid)</span><span style={{ color: '#a855f7', fontWeight: 'bold' }}>{eqMid > 0 ? `+${eqMid}` : eqMid}dB</span>
+                </div>
+                <input type="range" min={-12} max={12} value={eqMid} onChange={(e) => setEqMid(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#a855f7' }} />
+              </div>
+
+              {/* Treble */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1' }}>
+                  <span>高音 (Treble)</span><span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{eqTreble > 0 ? `+${eqTreble}` : eqTreble}dB</span>
+                </div>
+                <input type="range" min={-12} max={12} value={eqTreble} onChange={(e) => setEqTreble(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#38bdf8' }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Seekbar */}
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <input type="range" min={0} max={duration || 100} value={currentTime} onChange={(e) => { const t = parseFloat(e.target.value); setCurrentTime(t); if (audioRef.current) audioRef.current.currentTime = t; }} style={{ width: '100%', accentColor: '#ec4899', cursor: 'pointer' }} />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>
             <span>{fmt(currentTime)}</span><span>{fmt(duration)}</span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(30,41,59,0.8)', padding: '6px 12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
+
+        {/* Play & Key Controls & EQ Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
+          {/* Key Change */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(30,41,59,0.8)', padding: '4px 10px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)' }}>
             <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1' }}>キー:</span>
-            <button type="button" onClick={() => setKeyOffset((k) => Math.max(-6, k - 1))} style={{ width: '28px', height: '28px', borderRadius: '50%', border: 'none', background: '#334155', color: '#fff', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>-</button>
-            <span style={{ fontSize: '13px', fontWeight: 'bold', color: keyOffset === 0 ? '#fff' : '#f472b6', minWidth: '24px', textAlign: 'center' }}>{keyOffset > 0 ? `+${keyOffset}` : keyOffset}</span>
-            <button type="button" onClick={() => setKeyOffset((k) => Math.min(6, k + 1))} style={{ width: '28px', height: '28px', borderRadius: '50%', border: 'none', background: '#334155', color: '#fff', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer' }}>+</button>
+            <button type="button" onClick={() => setKeyOffset((k) => Math.max(-6, k - 1))} style={{ width: '26px', height: '26px', borderRadius: '50%', border: 'none', background: '#334155', color: '#fff', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>-</button>
+            <span style={{ fontSize: '12px', fontWeight: 'bold', color: keyOffset === 0 ? '#fff' : '#f472b6', minWidth: '20px', textAlign: 'center' }}>{keyOffset > 0 ? `+${keyOffset}` : keyOffset}</span>
+            <button type="button" onClick={() => setKeyOffset((k) => Math.min(6, k + 1))} style={{ width: '26px', height: '26px', borderRadius: '50%', border: 'none', background: '#334155', color: '#fff', fontWeight: 'bold', fontSize: '13px', cursor: 'pointer' }}>+</button>
           </div>
-          <button type="button" onClick={togglePlay} style={{ width: '64px', height: '64px', borderRadius: '50%', border: 'none', background: 'linear-gradient(135deg,#ec4899 0%,#a855f7 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 8px 25px rgba(236,72,153,0.5)', transition: 'transform 0.2s ease' }}>
-            {isPlaying ? (<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="2" /><rect x="14" y="4" width="4" height="16" rx="2" /></svg>) : (<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: '4px' }}><path d="M8 5v14l11-7z" /></svg>)}
+
+          {/* Play Button */}
+          <button type="button" onClick={togglePlay} style={{ width: '60px', height: '60px', borderRadius: '50%', border: 'none', background: 'linear-gradient(135deg,#ec4899 0%,#a855f7 100%)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 8px 25px rgba(236,72,153,0.5)', transition: 'transform 0.2s ease' }}>
+            {isPlaying ? (<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="2" /><rect x="14" y="4" width="4" height="16" rx="2" /></svg>) : (<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style={{ marginLeft: '4px' }}><path d="M8 5v14l11-7z" /></svg>)}
           </button>
-          <div style={{ width: '80px' }} />
+
+          {/* EQ Panel Toggle Button */}
+          <button type="button" onClick={() => setShowEqPanel(!showEqPanel)} style={{ padding: '6px 12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.15)', background: showEqPanel ? 'rgba(236,72,153,0.25)' : 'rgba(30,41,59,0.8)', color: showEqPanel ? '#f472b6' : '#cbd5e1', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>
+            🎛️ EQ調整
+          </button>
         </div>
       </footer>
 

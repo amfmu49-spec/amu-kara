@@ -2,7 +2,7 @@
  * 完全無料・無制限 Demucs v4 AI 音源分離 API 連携モジュール (v3.0.0)
  */
 export async function separateVocalWithFreeAI(audioUrl: string): Promise<string | null> {
-  console.log('🤖 Starting Meta Demucs v4 AI Separation for:', audioUrl);
+  console.log('🤖 Starting AMU KARA AI Separation for:', audioUrl);
 
   // 1. Suno CDN のダイレクトMP3 URLから楽曲IDを抽出
   // 例: https://cdn1.suno.ai/12345678-abcd-1234-abcd-123456789abc.mp3

@@ -6,7 +6,7 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
-export const APP_VERSION = 'v4.1.0 (Graphic EQ & Pre-Render)';
+export const APP_VERSION = 'v4.2.0 (3-Band EQ & AB Compare)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -31,7 +31,7 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setLoadingStatus('🤖 Meta Demucs v4 AI がボーカルを100%完全分離中... (数秒お待ちください)');
+    setLoadingStatus('🤖 AMU KARA AI が高音質ボーカル分離中... (数秒お待ちください)');
 
     try {
       let accompanimentUrl = targetAudioUrl;
@@ -284,7 +284,7 @@ export default function Home() {
             borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '20px'
           }} />
           <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: '0 0 10px 0', background: 'linear-gradient(90deg, #ec4899, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            Meta Demucs v4 AI 分離中...
+            AMU KARA AI 高音質分離中...
           </h2>
           <p style={{ fontSize: '13px', color: '#cbd5e1', margin: 0, maxWidth: '320px', lineHeight: '1.5' }}>
             {loadingStatus}
