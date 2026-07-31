@@ -21,8 +21,8 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const highShelfRef = useRef<BiquadFilterNode | null>(null);
-  const lowShelfRef = useRef<BiquadFilterNode | null>(null);
+  const warmLowRef = useRef<BiquadFilterNode | null>(null);
+  const smoothHighRef = useRef<BiquadFilterNode | null>(null);
   const compRef = useRef<DynamicsCompressorNode | null>(null);
 
   // ト書き ([Verse], [Chorus], (Bridge) 等) の完全除去
@@ -31,7 +31,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // Hi-Fi アタック ＆ ダイナミクス音質復元マスターイコライザー (High-Res Audio Enhancer)
+  // 安定感重視 Solid & Warm マスター音質エンジン (Pomping-free & Heavy Low-End)
   useEffect(() => {
     if (!audioRef.current) return;
 
@@ -50,46 +50,45 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         if (!sourceNodeRef.current && audioRef.current) {
           sourceNodeRef.current = ctx.createMediaElementSource(audioRef.current);
           
-          // 1. 高域アタック ＆ 煌めき復元 (8kHz High-Shelf +6dB)
-          const highShelf = ctx.createBiquadFilter();
-          highShelf.type = 'highshelf';
-          highShelf.frequency.value = 8000;
-          highShelf.gain.value = 6.0;
+          // 1. どっしりとした中低音の土台補強 (250Hz Peak +3dB) -> 浮つき防止
+          const warmLow = ctx.createBiquadFilter();
+          warmLow.type = 'peaking';
+          warmLow.frequency.value = 250;
+          warmLow.Q.value = 1.0;
+          warmLow.gain.value = 3.0;
 
-          // 2. 重低音 Sub-Bass パンチ補正 (100Hz Low-Shelf +5dB)
-          const lowShelf = ctx.createBiquadFilter();
-          lowShelf.type = 'lowshelf';
-          lowShelf.frequency.value = 100;
-          lowShelf.gain.value = 5.0;
+          // 2. マイルドで落ち着いた高域 (10kHz High-Shelf +2dB) -> カサつき全排除
+          const smoothHigh = ctx.createBiquadFilter();
+          smoothHigh.type = 'highshelf';
+          smoothHigh.frequency.value = 10000;
+          smoothHigh.gain.value = 2.0;
 
-          // 3. こもり除去 ＆ 輪郭をクッキリ立たせるダイナミクス・コンプレッサー
+          // 3. フラつき・ポンピングを完全防止する滑らかコンプレッサー
           const comp = ctx.createDynamicsCompressor();
-          comp.threshold.value = -16;
-          comp.knee.value = 12;
-          comp.ratio.value = 3;
-          comp.attack.value = 0.003;
-          comp.release.value = 0.15;
+          comp.threshold.value = -12;
+          comp.knee.value = 20;
+          comp.ratio.value = 1.8; // ナチュラルな圧縮
+          comp.attack.value = 0.05;  // 落ち着いたアタック
+          comp.release.value = 0.40; // ポンピングを完璧に抑え込むスローリレーズ
 
-          highShelfRef.current = highShelf;
-          lowShelfRef.current = lowShelf;
+          warmLowRef.current = warmLow;
+          smoothHighRef.current = smoothHigh;
           compRef.current = comp;
 
-          // パイプライン接続: Source -> HighShelf -> LowShelf -> Comp -> Destination
-          sourceNodeRef.current.connect(highShelf);
-          highShelf.connect(lowShelf);
-          lowShelf.connect(comp);
+          // パイプライン接続: Source -> WarmLow -> SmoothHigh -> Comp -> Destination
+          sourceNodeRef.current.connect(warmLow);
+          warmLow.connect(smoothHigh);
+          smoothHigh.connect(comp);
           comp.connect(ctx.destination);
         }
 
-        if (highShelfRef.current && lowShelfRef.current) {
+        if (warmLowRef.current && smoothHighRef.current) {
           if (isVocalCut) {
-            // 音質補正 ON: 高域煌めき +6dB, 重低音 +5dB
-            highShelfRef.current.gain.value = 6.0;
-            lowShelfRef.current.gain.value = 5.0;
+            warmLowRef.current.gain.value = 3.0;
+            smoothHighRef.current.gain.value = 2.0;
           } else {
-            // 原音 OFF: フラット
-            highShelfRef.current.gain.value = 0;
-            lowShelfRef.current.gain.value = 0;
+            warmLowRef.current.gain.value = 0;
+            smoothHighRef.current.gain.value = 0;
           }
         }
       } catch (e) {
@@ -246,7 +245,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             boxShadow: isVocalCut ? '0 0 12px rgba(236, 72, 153, 0.5)' : 'none'
           }}
         >
-          {isVocalCut ? '✨ Hi-Fi 音質復元: ON' : '✨ 原音: OFF'}
+          {isVocalCut ? '✨ 安定サウンド: ON' : '✨ 原音: OFF'}
         </button>
       </header>
 
