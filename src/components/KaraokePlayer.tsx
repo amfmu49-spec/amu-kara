@@ -335,20 +335,10 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
         canvasCtx.fillStyle = gradient;
 
-        const radius = Math.min(barWidth / 2, 3);
         const y = height - barHeight;
 
-        // クッキリした角丸長方形
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(x + radius, y);
-        canvasCtx.lineTo(x + barWidth - radius, y);
-        canvasCtx.quadraticCurveTo(x + barWidth, y, x + barWidth, y + radius);
-        canvasCtx.lineTo(x + barWidth, height);
-        canvasCtx.lineTo(x, height);
-        canvasCtx.lineTo(x, y + radius);
-        canvasCtx.quadraticCurveTo(x, y, x + radius, y);
-        canvasCtx.closePath();
-        canvasCtx.fill();
+        // 角がある完全な直角ソリッド長方形バーを描画
+        canvasCtx.fillRect(x, y, barWidth, barHeight);
 
         x += barWidth + 3;
       }
@@ -471,7 +461,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#475569', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ textAlign: 'center', maxWidth: '45%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: 'linear-gradient(90deg,#ec4899,#0284c7)', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold', marginTop: '2px' }}>v5.0.0 (AI White Edition)</span>
+          <span style={{ fontSize: '9px', background: 'linear-gradient(90deg,#ec4899,#0284c7)', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold', marginTop: '2px' }}>v5.1.0 (Sharp Visualizer Bar)</span>
         </div>
         
         {/* 原曲 ⇄ 伴奏シームレス聞き比べボタン */}

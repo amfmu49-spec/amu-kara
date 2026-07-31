@@ -6,7 +6,7 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
-export const APP_VERSION = 'v5.0.0 (AI White Edition)';
+export const APP_VERSION = 'v5.1.0 (Sharp Visualizer Bar)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
