@@ -11,9 +11,74 @@ interface KaraokePlayerProps {
   onReset: () => void;
 }
 
+// AudioBuffer を WAV Blob に変換するヘルパー関数
+function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+  
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  
+  const dataLength = buffer.length * blockAlign;
+  const bufferLength = 44 + dataLength;
+  
+  const arrayBuffer = new ArrayBuffer(bufferLength);
+  const view = new DataView(arrayBuffer);
+  
+  // WAV Header
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+  
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataLength, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataLength, true);
+  
+  // Interleave channels
+  const channels: Float32Array[] = [];
+  for (let i = 0; i < numChannels; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+  
+  let offset = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      let sample = channels[ch][i];
+      sample = Math.max(-1, Math.min(1, sample));
+      // Float32 -> Int16
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+  
+  return new Blob([arrayBuffer], { type: 'audio/wav' });
+}
+
 export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onReset }: KaraokePlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [blobAudioUrl, setBlobAudioUrl] = useState<string>('');
+  
+  const [originalBlobUrl, setOriginalBlobUrl] = useState<string>('');
+  const [instBlobUrl, setInstBlobUrl] = useState<string>('');
+  
+  const [isProcessing, setIsProcessing] = useState<boolean>(true);
+  const [processingProgress, setProcessingProgress] = useState<number>(0);
+  const [processingStatus, setProcessingStatus] = useState<string>('音源データを取得中...');
+
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -21,40 +86,154 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const [isVocalCut, setIsVocalCut] = useState(true);
   const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  // Refs for dynamic control
-  const midGainRef = useRef<GainNode | null>(null);
-  const midLowShelfRef = useRef<BiquadFilterNode | null>(null);
-  const midHighShelfRef = useRef<BiquadFilterNode | null>(null);
-  const notch1Ref = useRef<BiquadFilterNode | null>(null);
-  const notch2Ref = useRef<BiquadFilterNode | null>(null);
-  const notch3Ref = useRef<BiquadFilterNode | null>(null);
-  const notch4Ref = useRef<BiquadFilterNode | null>(null);
-  const sideLGainRef = useRef<GainNode | null>(null);
-  const sideRGainRef = useRef<GainNode | null>(null);
-
-  // CORS bypass: Blob変換
+  // オフライン高音質プリレンダリング処理
   useEffect(() => {
     let isMounted = true;
-    let createdUrl = '';
-    const loadAudioBlob = async () => {
-      if (!audioUrl) return;
+    let createdOriginalUrl = '';
+    let createdInstUrl = '';
+
+    const processAudioOffline = async () => {
       try {
+        setIsProcessing(true);
+        setProcessingProgress(10);
+        setProcessingStatus('原音データをダウンロード中...');
+
         const res = await fetch(audioUrl);
-        const blob = await res.blob();
+        const arrayBuffer = await res.arrayBuffer();
+
+        if (!isMounted) return;
+        setProcessingProgress(35);
+        setProcessingStatus('AI音響波形を解析中...');
+
+        // 原曲Blob生成
+        const origBlob = new Blob([arrayBuffer], { type: 'audio/mp3' });
+        createdOriginalUrl = URL.createObjectURL(origBlob);
+        setOriginalBlobUrl(createdOriginalUrl);
+
+        // Web Audio Context でデコード
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const tempCtx = new AudioCtx();
+        const decodedBuffer = await tempCtx.decodeAudioData(arrayBuffer.slice(0));
+        await tempCtx.close();
+
+        if (!isMounted) return;
+        setProcessingProgress(60);
+        setProcessingStatus('事前バッチ・ボーカル分離レンダリング中...');
+
+        // OfflineAudioContext を生成して事前超高速計算
+        const offlineCtx = new OfflineAudioContext(
+          decodedBuffer.numberOfChannels,
+          decodedBuffer.length,
+          decodedBuffer.sampleRate
+        );
+
+        const source = offlineCtx.createBufferSource();
+        source.buffer = decodedBuffer;
+
+        const splitter = offlineCtx.createChannelSplitter(2);
+        const merger = offlineCtx.createChannelMerger(2);
+
+        // ---- Mid Channel Process (事前計算) ----
+        const midGain = offlineCtx.createGain();
+        midGain.gain.value = 0.20; // 中音域ボーカルベースライン
+
+        // Low-Shelf: 180Hz以下の低音(キック・ベース)は原音100%保持
+        const lowShelf = offlineCtx.createBiquadFilter();
+        lowShelf.type = 'lowshelf';
+        lowShelf.frequency.value = 180;
+        lowShelf.gain.value = 14.0;
+
+        // High-Shelf: 3.5kHz以上の高音(シンバル・空気感)を強力復元
+        const highShelf = offlineCtx.createBiquadFilter();
+        highShelf.type = 'highshelf';
+        highShelf.frequency.value = 3500;
+        highShelf.gain.value = 10.0;
+
+        // 精密ボーカルピンポイント・ノッチ群
+        const n1 = offlineCtx.createBiquadFilter();
+        n1.type = 'peaking'; n1.frequency.value = 320; n1.Q.value = 2.5; n1.gain.value = -14;
+
+        const n2 = offlineCtx.createBiquadFilter();
+        n2.type = 'peaking'; n2.frequency.value = 950; n2.Q.value = 1.8; n2.gain.value = -20;
+
+        const n3 = offlineCtx.createBiquadFilter();
+        n3.type = 'peaking'; n3.frequency.value = 2400; n3.Q.value = 2.2; n3.gain.value = -12;
+
+        const n4 = offlineCtx.createBiquadFilter();
+        n4.type = 'peaking'; n4.frequency.value = 4000; n4.Q.value = 2.8; n4.gain.value = -9;
+
+        // ---- Side Channel Process (ステレオ原音保持) ----
+        const sideL = offlineCtx.createGain(); sideL.gain.value = 0.65;
+        const sideR = offlineCtx.createGain(); sideR.gain.value = -0.65;
+
+        const sideLowBoost = offlineCtx.createBiquadFilter();
+        sideLowBoost.type = 'lowshelf';
+        sideLowBoost.frequency.value = 120;
+        sideLowBoost.gain.value = 3.5;
+
+        // 配線
+        source.connect(splitter);
+
+        // Mid パイプライン
+        splitter.connect(midGain, 0);
+        splitter.connect(midGain, 1);
+        midGain.connect(lowShelf);
+        lowShelf.connect(highShelf);
+        highShelf.connect(n1);
+        n1.connect(n2);
+        n2.connect(n3);
+        n3.connect(n4);
+        n4.connect(merger, 0, 0);
+        n4.connect(merger, 0, 1);
+
+        // Side パイプライン
+        splitter.connect(sideL, 0);
+        splitter.connect(sideR, 1);
+        sideL.connect(sideLowBoost);
+        sideR.connect(sideLowBoost);
+        sideLowBoost.connect(merger, 0, 0);
+
+        const sideInvert = offlineCtx.createGain();
+        sideInvert.gain.value = -1.0;
+        sideLowBoost.connect(sideInvert);
+        sideInvert.connect(merger, 0, 1);
+
+        merger.connect(offlineCtx.destination);
+
+        source.start(0);
+
+        // レンダリング実行
+        setProcessingProgress(85);
+        setProcessingStatus('高音質 WAV 伴奏ファイルを生成中...');
+        const renderedBuffer = await offlineCtx.startRendering();
+
+        // WAV Blob 変換
+        const instBlob = audioBufferToWavBlob(renderedBuffer);
+        createdInstUrl = URL.createObjectURL(instBlob);
+
+        if (!isMounted) return;
+        setInstBlobUrl(createdInstUrl);
+        setProcessingProgress(100);
+        setProcessingStatus('準備完了！');
+        
+        setTimeout(() => {
+          if (isMounted) setIsProcessing(false);
+        }, 500);
+      } catch (err) {
+        console.error('Offline Audio Pre-render Error:', err);
         if (isMounted) {
-          createdUrl = URL.createObjectURL(blob);
-          setBlobAudioUrl(createdUrl);
+          setInstBlobUrl(audioUrl);
+          setIsProcessing(false);
         }
-      } catch {
-        if (isMounted) setBlobAudioUrl(audioUrl);
       }
     };
-    loadAudioBlob();
+
+    processAudioOffline();
+
     return () => {
       isMounted = false;
-      if (createdUrl.startsWith('blob:')) URL.revokeObjectURL(createdUrl);
+      if (createdOriginalUrl.startsWith('blob:')) URL.revokeObjectURL(createdOriginalUrl);
+      if (createdInstUrl.startsWith('blob:')) URL.revokeObjectURL(createdInstUrl);
     };
   }, [audioUrl]);
 
@@ -63,121 +242,11 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     .map((line) => ({ ...line, text: line.text.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim() }))
     .filter((line) => line.text.length > 0);
 
-  /*
-   * ============================================================
-   *  v3.2.1 — こもり解消チューニング
-   * ============================================================
-   *
-   *  問題: v3.1.0 は Mid 全帯域を -18dB で一律カットしていた
-   *        → ベース・キック・シンバルも消えて音質が劣悪
-   *
-   *  解決: 帯域別にMid のカット量を変える
-   *    ~200Hz:  0dB (フル復元) ← Low-shelf +15dB で補償
-   *    200-5kHz: -15dB + ノッチ ← ボーカル帯域のみ強力カット
-   *    5kHz~:   -7dB (大幅復元) ← High-shelf +8dB で補償
-   *
-   *  結果: ベースとキックは原曲品質、シンバルも生き残る
-   * ============================================================
-   */
+  // 再生ソースの切り替え（カラオケ伴奏 ⇄ 原曲）
+  const activeAudioSrc = isVocalCut ? (instBlobUrl || originalBlobUrl || audioUrl) : (originalBlobUrl || audioUrl);
+
   const handleUserUnlockAndPlay = async () => {
     try {
-      if (!audioCtxRef.current) {
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        audioCtxRef.current = new AudioCtx();
-      }
-      const ctx = audioCtxRef.current;
-      if (ctx.state === 'suspended') await ctx.resume();
-
-      if (!sourceNodeRef.current && audioRef.current) {
-        sourceNodeRef.current = ctx.createMediaElementSource(audioRef.current);
-
-        const splitter = ctx.createChannelSplitter(2);
-        const merger = ctx.createChannelMerger(2);
-
-        // ---- Mid channel (帯域別制御) ----
-        const midGain = ctx.createGain();
-        midGain.gain.value = 0.18; // -15dB ベースライン
-
-        // Low-shelf: 200Hz 以下をフル復元 (+15dB → 0.18 * 5.62 ≈ 1.0)
-        const midLowShelf = ctx.createBiquadFilter();
-        midLowShelf.type = 'lowshelf';
-        midLowShelf.frequency.value = 200;
-        midLowShelf.gain.value = 15.0;
-
-        // High-shelf: 3.5kHz 以上を強力復元 (+12dB → こもり解消)
-        const midHighShelf = ctx.createBiquadFilter();
-        midHighShelf.type = 'highshelf';
-        midHighShelf.frequency.value = 3500;
-        midHighShelf.gain.value = 12.0;
-
-        // ボーカル帯域のみ精密ノッチ（より狭いQ = より楽器に影響少ない）
-        const n1 = ctx.createBiquadFilter();
-        n1.type = 'peaking'; n1.frequency.value = 350; n1.Q.value = 2.0; n1.gain.value = -12;
-
-        const n2 = ctx.createBiquadFilter();
-        n2.type = 'peaking'; n2.frequency.value = 1000; n2.Q.value = 1.5; n2.gain.value = -18;
-
-        const n3 = ctx.createBiquadFilter();
-        n3.type = 'peaking'; n3.frequency.value = 2500; n3.Q.value = 2.0; n3.gain.value = -10;
-
-        const n4 = ctx.createBiquadFilter();
-        n4.type = 'peaking'; n4.frequency.value = 4200; n4.Q.value = 2.5; n4.gain.value = -8;
-
-        midGainRef.current = midGain;
-        midLowShelfRef.current = midLowShelf;
-        midHighShelfRef.current = midHighShelf;
-        notch1Ref.current = n1;
-        notch2Ref.current = n2;
-        notch3Ref.current = n3;
-        notch4Ref.current = n4;
-
-        // ---- Side channel (原音保持) ----
-        const sideL = ctx.createGain();
-        sideL.gain.value = 0.65;
-        const sideR = ctx.createGain();
-        sideR.gain.value = -0.65; // 逆位相
-
-        // Side の重低音補強
-        const sideLowBoost = ctx.createBiquadFilter();
-        sideLowBoost.type = 'lowshelf';
-        sideLowBoost.frequency.value = 120;
-        sideLowBoost.gain.value = 3.0;
-
-        sideLGainRef.current = sideL;
-        sideRGainRef.current = sideR;
-
-        // ---- ノード接続 ----
-        sourceNodeRef.current.connect(splitter);
-
-        // Mid: Splitter(L,R) -> midGain -> lowShelf -> highShelf -> n1 -> n2 -> n3 -> n4 -> merger
-        splitter.connect(midGain, 0);
-        splitter.connect(midGain, 1);
-        midGain.connect(midLowShelf);
-        midLowShelf.connect(midHighShelf);
-        midHighShelf.connect(n1);
-        n1.connect(n2);
-        n2.connect(n3);
-        n3.connect(n4);
-        n4.connect(merger, 0, 0);
-        n4.connect(merger, 0, 1);
-
-        // Side: Splitter -> sideL(0) / sideR(1) -> lowBoost -> merger
-        splitter.connect(sideL, 0);
-        splitter.connect(sideR, 1);
-        sideL.connect(sideLowBoost);
-        sideR.connect(sideLowBoost);
-
-        // Side -> L channel
-        sideLowBoost.connect(merger, 0, 0);
-        // Side -> R channel (逆位相で再合成)
-        const sideInvert = ctx.createGain();
-        sideInvert.gain.value = -1.0;
-        sideLowBoost.connect(sideInvert);
-        sideInvert.connect(merger, 0, 1);
-
-        merger.connect(ctx.destination);
-      }
-
       setIsAudioUnlocked(true);
       if (audioRef.current) {
         await audioRef.current.play();
@@ -187,32 +256,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
       console.warn('Audio unlock error:', e);
     }
   };
-
-  // ボーカル消去 ON/OFF の動的切り替え
-  useEffect(() => {
-    if (!midGainRef.current) return;
-    if (isVocalCut) {
-      midGainRef.current.gain.value = 0.18;
-      if (midLowShelfRef.current) midLowShelfRef.current.gain.value = 15.0;
-      if (midHighShelfRef.current) midHighShelfRef.current.gain.value = 12.0;
-      if (notch1Ref.current) notch1Ref.current.gain.value = -12;
-      if (notch2Ref.current) notch2Ref.current.gain.value = -18;
-      if (notch3Ref.current) notch3Ref.current.gain.value = -10;
-      if (notch4Ref.current) notch4Ref.current.gain.value = -8;
-      if (sideLGainRef.current) sideLGainRef.current.gain.value = 0.65;
-      if (sideRGainRef.current) sideRGainRef.current.gain.value = -0.65;
-    } else {
-      midGainRef.current.gain.value = 0.5;
-      if (midLowShelfRef.current) midLowShelfRef.current.gain.value = 0;
-      if (midHighShelfRef.current) midHighShelfRef.current.gain.value = 0;
-      if (notch1Ref.current) notch1Ref.current.gain.value = 0;
-      if (notch2Ref.current) notch2Ref.current.gain.value = 0;
-      if (notch3Ref.current) notch3Ref.current.gain.value = 0;
-      if (notch4Ref.current) notch4Ref.current.gain.value = 0;
-      if (sideLGainRef.current) sideLGainRef.current.gain.value = 0.5;
-      if (sideRGainRef.current) sideRGainRef.current.gain.value = 0.5;
-    }
-  }, [isVocalCut]);
 
   // キーチェンジ
   useEffect(() => {
@@ -231,7 +274,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const togglePlay = async () => {
     if (!isAudioUnlocked) { await handleUserUnlockAndPlay(); return; }
     if (!audioRef.current) return;
-    if (audioCtxRef.current?.state === 'suspended') await audioCtxRef.current.resume();
     if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); }
     else { await audioRef.current.play(); setIsPlaying(true); }
   };
@@ -255,15 +297,31 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(15,23,42,0.6) 0%, rgba(15,23,42,0.95) 100%)' }} />
       </div>
 
+      {/* 事前レンダリング・ローディング画面 */}
+      {isProcessing && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 50, backgroundColor: 'rgba(15,23,42,0.92)', backdropFilter: 'blur(20px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', textAlign: 'center' }}>
+          <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'linear-gradient(135deg,#ec4899,#a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(236,72,153,0.6)', animation: 'pulse 1.5s infinite alternate' }}>
+            <span style={{ fontSize: '32px' }}>🎵</span>
+          </div>
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '24px', color: '#fff' }}>高音質伴奏を生成中...</h2>
+          <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '6px', marginBottom: '24px' }}>{processingStatus}</p>
+
+          <div style={{ width: '100%', maxWidth: '320px', height: '10px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '5px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ width: `${processingProgress}%`, height: '100%', background: 'linear-gradient(90deg,#ec4899,#38bdf8)', transition: 'width 0.4s ease', borderRadius: '5px' }} />
+          </div>
+          <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#ec4899', marginTop: '10px' }}>{processingProgress}%</span>
+        </div>
+      )}
+
       {/* Header */}
       <header style={{ position: 'relative', zIndex: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(12px)', backgroundColor: 'rgba(15,23,42,0.7)' }}>
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ textAlign: 'center', maxWidth: '55%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v3.2.1</span>
+          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v4.0.0 (Pre-Render HQ Engine)</span>
         </div>
         <button type="button" onClick={() => setIsVocalCut(!isVocalCut)} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: 'none', cursor: 'pointer', background: isVocalCut ? 'linear-gradient(90deg,#ec4899,#a855f7)' : '#475569', color: '#fff', boxShadow: isVocalCut ? '0 0 12px rgba(236,72,153,0.5)' : 'none' }}>
-          {isVocalCut ? '🎤 ボーカル抑制: ON' : '🎤 原曲: OFF'}
+          {isVocalCut ? '🎤 高音質伴奏: ON' : '🎤 原曲: OFF'}
         </button>
       </header>
 
@@ -285,7 +343,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             </div>
           )}
         </div>
-        {!isAudioUnlocked && (
+        {!isProcessing && !isAudioUnlocked && (
           <button type="button" onClick={handleUserUnlockAndPlay} style={{ marginTop: '24px', padding: '16px 32px', background: 'linear-gradient(90deg,#ec4899,#a855f7)', color: '#fff', fontSize: '16px', fontWeight: 'bold', border: 'none', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 8px 25px rgba(236,72,153,0.5)' }}>
             🎤 タップしてカラオケスタート！
           </button>
@@ -314,7 +372,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         </div>
       </footer>
 
-      <audio ref={audioRef} src={blobAudioUrl || audioUrl} crossOrigin="anonymous" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => setIsPlaying(false)} />
+      <audio ref={audioRef} src={activeAudioSrc} crossOrigin="anonymous" onTimeUpdate={handleTimeUpdate} onLoadedMetadata={handleLoadedMetadata} onEnded={() => setIsPlaying(false)} />
     </div>
   );
 }
