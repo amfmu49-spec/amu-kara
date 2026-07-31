@@ -6,6 +6,8 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
+export const APP_VERSION = 'v2.4.0 (Hi-Fi Ultra Cut)';
+
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
   const [isPlayingMode, setIsPlayingMode] = useState(false);
@@ -35,12 +37,10 @@ export default function Home() {
       let accompanimentUrl = targetAudioUrl;
 
       if (targetAudioUrl) {
-        // 1. 完全無料・無制限 Demucs AI 音源分離を呼び出し
         const aiResult = await separateVocalWithFreeAI(targetAudioUrl);
         if (aiResult) {
           accompanimentUrl = aiResult;
         } else {
-          // 2. ローカルAIバックエンドが利用可能な場合はローカルAIを実行
           try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 1500);
@@ -152,7 +152,7 @@ export default function Home() {
     }}>
       <div style={{ width: '100%', maxWidth: '440px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         
-        {/* ロゴ画像ヘッダー */}
+        {/* ロゴ画像 ＆ バージョンヘッダー */}
         <header style={{ textAlign: 'center', margin: '8px 0 16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <img
             src="logo_cropped.png"
@@ -166,9 +166,14 @@ export default function Home() {
               display: 'block'
             }}
           />
-          <p style={{ fontSize: '12px', color: '#64748b', marginTop: '12px', fontWeight: 'bold', letterSpacing: '0.05em' }}>
-            全自動 AI ボーカル抽出 ＆ 高精度カラオケ
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>
+            <p style={{ fontSize: '12px', color: '#64748b', margin: 0, fontWeight: 'bold', letterSpacing: '0.05em' }}>
+              全自動 AI ボーカル抽出 ＆ 高精度カラオケ
+            </p>
+            <span style={{ fontSize: '10px', background: '#ec4899', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+              {APP_VERSION}
+            </span>
+          </div>
         </header>
 
         {/* メイン白基調カード */}

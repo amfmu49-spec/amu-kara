@@ -292,10 +292,13 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
           ← 戻る
         </button>
 
-        <div style={{ textAlign: 'center', maxWidth: '55%' }}>
+        <div style={{ textAlign: 'center', maxWidth: '55%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#ffffff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {title || 'AMU KARA'}
           </h1>
+          <span style={{ fontSize: '9px', background: '#ec4899', color: '#ffffff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>
+            v2.4.0
+          </span>
         </div>
 
         {/* ボーカル消去リアルタイム切り替えボタン */}
