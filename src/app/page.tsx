@@ -6,23 +6,16 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 
 export default function Home() {
-  const [audioUrlInput, setAudioUrlInput] = useState<string>('');
   const [songTitle, setSongTitle] = useState<string>('');
-
-  // 再生モード用の状態
   const [isPlayingMode, setIsPlayingMode] = useState(false);
   const [accompanimentAudioUrl, setAccompanimentAudioUrl] = useState<string | null>(null);
   const [bgImageUrl, setBgImageUrl] = useState<string | null>(null);
   const [lyricsData, setLyricsData] = useState<LyricLine[]>([]);
-
-  // ローディング状態
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
 
-  // バックエンドURL (FastAPI)
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
 
-  // 音声分離・スタート処理
   const startKaraokeWithData = useCallback(async (
     targetAudioFile: File | null,
     targetAudioUrl: string,
@@ -71,7 +64,6 @@ export default function Home() {
     }
   }, [BACKEND_URL]);
 
-  // URLハッシュからの自動読み込み（ブックマークレット直接ジャンプ対応）
   useEffect(() => {
     const handleUrlParams = async () => {
       try {
@@ -103,7 +95,7 @@ export default function Home() {
             parsedLyrics = parseSRT(srtContent);
             setLyricsData(parsedLyrics);
           }
-          if (audio) setAudioUrlInput(audio);
+          if (audio) setAccompanimentAudioUrl(audio);
           if (image) setBgImageUrl(image);
           if (title) setSongTitle(title);
 
@@ -119,8 +111,6 @@ export default function Home() {
     };
     handleUrlParams();
   }, [startKaraokeWithData]);
-
-
 
   if (isPlayingMode && accompanimentAudioUrl) {
     return (
@@ -138,40 +128,40 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-800 flex flex-col items-center justify-center p-4 selection:bg-pink-500 selection:text-white font-sans">
-      {/* Header with New Logo */}
-      <header className="w-full max-w-md text-center py-4 flex flex-col items-center">
+    <main className="app-container">
+      {/* Header with Cropped Logo */}
+      <header style={{ textAlign: 'center', margin: '16px 0 8px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <img
           src="logo_cropped.png"
           alt="AMU KARA Logo"
-          className="w-64 h-auto rounded-2xl shadow-xl shadow-pink-500/20 border border-slate-900/80 hover:scale-105 transition transform"
+          className="app-logo"
         />
-        <p className="text-xs text-slate-500 mt-2 font-bold tracking-wider">
+        <p style={{ fontSize: '12px', color: '#64748b', marginTop: '10px', fontWeight: 'bold', letterSpacing: '0.05em' }}>
           全自動 AI ボーカル抽出 ＆ 高精度カラオケ
         </p>
       </header>
 
-      {/* Main Card (白基調 ＋ AIネオンライン) */}
-      <div className="w-full max-w-md bg-white/90 border-2 border-slate-100 rounded-3xl p-6 shadow-xl backdrop-blur-xl relative overflow-hidden space-y-4">
-        {/* AIカラーライン (上部枠線アクセント) */}
-        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-400" />
+      {/* Main White Card with AI Gradient Line */}
+      <div className="main-card">
+        <div className="ai-top-line" />
 
-        {/* ブックマークレット取得エリア */}
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 pt-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-700">✨ Suno全自動連携ブックマークレット</span>
+        <div style={{ padding: '8px 0' }}>
+          <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#334155', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span>✨</span>
+            <span>Suno全自動連携ブックマークレット</span>
           </div>
-          <p className="text-[11px] text-slate-500 leading-relaxed">
+          <p style={{ fontSize: '11px', color: '#64748b', lineHeight: '1.5', marginBottom: '12px' }}>
             下のコードをコピーしてブラウザのブックマークのURL欄に保存してください。Sunoの曲ページ（suno.com/song/...）で押すと1タップで自動スタートします。
           </p>
 
           <textarea
             id="bookmarklet-textarea"
             readOnly
-            rows={3}
+            rows={4}
             value={SUNO_BOOKMARKLET_SCRIPT}
-            className="w-full bg-slate-900 p-3 rounded-xl text-base text-green-400 font-mono border border-slate-800 focus:outline-none select-all leading-relaxed"
+            className="code-box"
           />
+
           <button
             type="button"
             onClick={() => {
@@ -192,19 +182,28 @@ export default function Home() {
                 }
               }
             }}
-            className="w-full py-3.5 bg-gradient-to-r from-purple-600 via-pink-600 to-cyan-500 active:scale-98 text-white rounded-xl font-bold text-xs shadow-md shadow-pink-500/20 transition"
+            className="copy-btn"
           >
             📋 ブックマークレットをコピー
           </button>
         </div>
       </div>
 
-      {/* Loading Modal */}
+      {/* Loading Overlay */}
       {isLoading && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-16 h-16 border-4 border-pink-500 border-t-transparent rounded-full animate-spin mb-6 shadow-lg shadow-pink-500/50" />
-          <h2 className="text-xl font-bold text-white mb-2">音声分離 AI 処理中...</h2>
-          <p className="text-xs text-slate-300 max-w-xs leading-relaxed">{loadingStatus}</p>
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 999,
+          background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          color: '#ffffff', textAlign: 'center', padding: '24px'
+        }}>
+          <div style={{
+            width: '48px', height: '48px',
+            border: '4px solid #ec4899', borderTopColor: 'transparent',
+            borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px'
+          }} />
+          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0' }}>音声分離 AI 処理中...</h2>
+          <p style={{ fontSize: '12px', color: '#cbd5e1', margin: 0 }}>{loadingStatus}</p>
         </div>
       )}
     </main>
