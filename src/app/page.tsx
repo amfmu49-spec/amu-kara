@@ -80,49 +80,58 @@ export default function Home() {
     const handleUrlParams = async () => {
       try {
         const hash = window.location.hash;
-        let data: { srt?: string; srtText?: string; audioUrl?: string; mp3Url?: string; imageUrl?: string; title?: string; autoStart?: boolean } | null = null;
+        let songId = '';
 
-        if (hash.startsWith('#lrc=')) {
-          const lrcText = decodeURIComponent(hash.replace('#lrc=', ''));
-          const parsedLyrics = parseSRT(lrcText);
-          setLyricsData(parsedLyrics);
-          window.history.replaceState(null, '', window.location.pathname);
-        } else if (hash.startsWith('#data=')) {
-          const base64Str = decodeURIComponent(hash.replace('#data=', ''));
-          const jsonStr = decodeURIComponent(escape(atob(base64Str)));
-          data = JSON.parse(jsonStr);
-        } else if (hash.startsWith('#sunoData=')) {
-          const rawJson = decodeURIComponent(hash.replace('#sunoData=', ''));
-          data = JSON.parse(rawJson);
+        if (hash.includes('song=')) {
+          const match = hash.match(/song=([a-f0-9\-]{36})/i) || hash.match(/song=([^&]+)/i);
+          if (match && match[1]) songId = match[1];
         }
 
-        if (data) {
-          const srtContent = data.srt || data.srtText || '';
-          const audio = data.audioUrl || data.mp3Url || '';
-          const image = data.imageUrl || null;
-          const title = data.title || 'Suno AI Track';
-
-          let parsedLyrics: LyricLine[] = [];
-          if (srtContent) {
-            parsedLyrics = parseSRT(srtContent);
-            setLyricsData(parsedLyrics);
-          }
-          if (audio) setAccompanimentAudioUrl(audio);
-          if (image) setBgImageUrl(image);
-          if (title) setSongTitle(title);
-
+        if (songId) {
+          setIsLoading(true);
+          setLoadingStatus('Sunoから高精度歌詞＆ジャケ写を自動抽出中...');
+          
           window.history.replaceState(null, '', window.location.pathname);
 
-          if (audio) {
-            await startKaraokeWithData(null, audio, image, parsedLyrics);
+          let currentAudio = `https://cdn1.suno.ai/${songId}.mp3`;
+          let currentImage = `https://cdn1.suno.ai/image_${songId}.png`;
+          let parsedLyrics: LyricLine[] = [];
+
+          try {
+            const res = await fetch(`${BACKEND_URL}/api/suno-info?song_id=${songId}`);
+            if (res.ok) {
+              const info = await res.json();
+              if (info.audio_url) currentAudio = info.audio_url;
+              if (info.image_url) currentImage = info.image_url;
+              if (info.title) setSongTitle(info.title);
+              if (info.srt_text) {
+                parsedLyrics = parseSRT(info.srt_text);
+              }
+            }
+          } catch (e) {
+            console.warn('Suno info fetch fallback', e);
           }
+
+          await startKaraokeWithData(null, currentAudio, currentImage, parsedLyrics);
+        } else if (hash.startsWith('#data=')) {
+          try {
+            const base64Str = decodeURIComponent(hash.replace('#data=', ''));
+            const jsonStr = decodeURIComponent(escape(atob(base64Str)));
+            const data = JSON.parse(jsonStr);
+            if (data && data.audioUrl) {
+              const parsed = data.srt ? parseSRT(data.srt) : [];
+              if (data.title) setSongTitle(data.title);
+              window.history.replaceState(null, '', window.location.pathname);
+              await startKaraokeWithData(null, data.audioUrl, data.imageUrl || null, parsed);
+            }
+          } catch (e) { console.warn(e); }
         }
       } catch (err) {
         console.error('URLデータ連携エラー:', err);
       }
     };
     handleUrlParams();
-  }, [startKaraokeWithData]);
+  }, [startKaraokeWithData, BACKEND_URL]);
 
   if (isPlayingMode && accompanimentAudioUrl) {
     return (
@@ -224,7 +233,7 @@ export default function Home() {
             <textarea
               id="bookmarklet-textarea"
               readOnly
-              rows={4}
+              rows={3}
               value={bookmarkletCode}
               style={{
                 width: '100%',
