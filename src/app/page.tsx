@@ -6,7 +6,7 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
-export const APP_VERSION = 'v2.7.0 (Hi-Fi Pristine Audio)';
+export const APP_VERSION = 'v3.0.0 (Absolute AI Engine)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -31,32 +31,32 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setLoadingStatus('✨ 無料 AI (Demucs v4) がボーカルを100%完全分離中...');
+    setLoadingStatus('🤖 Meta Demucs v4 AI がボーカルを100%完全分離中... (数秒お待ちください)');
 
     try {
       let accompanimentUrl = targetAudioUrl;
 
       if (targetAudioUrl) {
+        // 1. 本物の Deep Learning AI (Demucs v4) による音源分離を実行
         const aiResult = await separateVocalWithFreeAI(targetAudioUrl);
         if (aiResult) {
           accompanimentUrl = aiResult;
+          setLoadingStatus('✅ AI分離完了！カラオケを起動します...');
         } else {
+          // 2. ローカル Python FastAPI (Demucs/UVR5) へのリレー接続
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1500);
-
+            setLoadingStatus('⚙️ ローカル AI エンジンで音源分離中...');
             const response = await fetch(`${BACKEND_URL}/api/separate-url?url=${encodeURIComponent(targetAudioUrl)}`, {
-              method: 'POST',
-              signal: controller.signal
+              method: 'POST'
             });
-            clearTimeout(timeoutId);
 
             if (response.ok) {
               const audioBlob = await response.blob();
               accompanimentUrl = URL.createObjectURL(audioBlob);
+              setLoadingStatus('✅ ローカルAI分離完了！');
             }
           } catch (e) {
-            console.log('クライアント側リアルタイムDSPボーカル消去へフォールバックします。', e);
+            console.log('AI Separation Fallback to Client DSP:', e);
           }
         }
       }
@@ -65,8 +65,10 @@ export default function Home() {
       if (targetBgUrl) setBgImageUrl(targetBgUrl);
       if (targetLyrics.length > 0) setLyricsData(targetLyrics);
 
-      setIsLoading(false);
-      setIsPlayingMode(true);
+      setTimeout(() => {
+        setIsLoading(false);
+        setIsPlayingMode(true);
+      }, 800);
     } catch (err) {
       console.error(err);
       alert('処理中にエラーが発生しました。');
@@ -272,17 +274,21 @@ export default function Home() {
       {isLoading && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 999,
-          background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)',
+          background: 'rgba(15, 23, 42, 0.9)', backdropFilter: 'blur(12px)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           color: '#ffffff', textAlign: 'center', padding: '24px'
         }}>
           <div style={{
-            width: '48px', height: '48px',
+            width: '56px', height: '56px',
             border: '4px solid #ec4899', borderTopColor: 'transparent',
-            borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px'
+            borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '20px'
           }} />
-          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0' }}>AI 音源分離中...</h2>
-          <p style={{ fontSize: '12px', color: '#cbd5e1', margin: 0 }}>{loadingStatus}</p>
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', margin: '0 0 10px 0', background: 'linear-gradient(90deg, #ec4899, #38bdf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            Meta Demucs v4 AI 分離中...
+          </h2>
+          <p style={{ fontSize: '13px', color: '#cbd5e1', margin: 0, maxWidth: '320px', lineHeight: '1.5' }}>
+            {loadingStatus}
+          </p>
         </div>
       )}
     </main>

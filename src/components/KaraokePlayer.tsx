@@ -295,7 +295,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             {title || 'AMU KARA'}
           </h1>
           <span style={{ fontSize: '9px', background: '#ec4899', color: '#ffffff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>
-            v2.7.0
+            v3.0.0
           </span>
         </div>
 
