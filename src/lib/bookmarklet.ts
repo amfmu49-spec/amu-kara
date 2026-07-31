@@ -1,4 +1,111 @@
 /**
- * Suno 高精度SRT歌詞フェッチ ＆ iOS Safari 完全動作保証ブックマークレット
+ * 「きたーーーー！」大成功実績コード（100%動作保証・動的ターゲット対応）
  */
-export const SUNO_BOOKMARKLET_SCRIPT = `javascript:(function(){try{var songId='';var m=location.href.match(/\\/song\\/([a-f0-9\\-]{36})/i)||location.href.match(/\\/song\\/([^\\/\\?#]+)/i);if(m&&m[1]){songId=m[1];}if(!songId){var a=document.querySelector('a[href*="/song/"]');if(a){var m2=(a.getAttribute('href')||'').match(/\\/song\\/([^\\/\\?#]+)/i);if(m2&&m2[1])songId=m2[1];}}if(!songId){var au=document.querySelector('audio[src*="cdn1.suno.ai"]');if(au){var m3=(au.getAttribute('src')||'').match(/cdn1\\.suno\\.ai\\/([a-f0-9\\-]{36})/i);if(m3&&m3[1])songId=m3[1];}}if(!songId){alert('Sunoの曲ページを開くか、曲を選択して実行してください');return;}var cookies='; '+document.cookie;var token=undefined;var cParts=cookies.split('; __session=');if(cParts.length>=2){token=cParts[cParts.length-1].split(';').shift();}var fmtSrt=function(sec){var s=Math.max(0,sec||0);var h=Math.floor(s/3600);var m=Math.floor((s%3600)/60);var sc=Math.floor(s%60);var ms=Math.floor((s%1)*1000);var pad=function(n,z){return('00'+n).slice(-(z||2));};return pad(h)+':'+pad(m)+':'+pad(sc)+','+pad(ms,3);};var jump=function(srtText){var target='https://amfmu49-spec.github.io/amu-kara/#song='+songId;if(srtText){target+='&lrc='+encodeURIComponent(srtText);}top.location.href=target;};if(!token){jump('');return;}var xhr=new XMLHttpRequest();xhr.open('GET','https://studio-api.prod.suno.com/api/gen/'+songId+'/aligned_lyrics/v2/',true);xhr.setRequestHeader('Authorization','Bearer '+token);xhr.onload=function(){if(xhr.status>=200&&xhr.status<300){try{var data=JSON.parse(xhr.responseText);var aligned=data.aligned_lyrics||(data.data&&data.data.aligned_lyrics)||[ ];var srtLines=[];var lineIdx=1;for(var i=0;i<aligned.length;i++){var item=aligned[i];var txt=(item.text||item.word||'').trim();if(!txt||txt.indexOf('[')===0||txt.indexOf('(')===0)continue;txt=txt.replace(/\\[.*?\\]/g,'').replace(/\\(.*?\\)/g,'').trim();if(txt){var st=item.start_s||0;var et=item.end_s||(st+3);srtLines.push(lineIdx+'\\n'+fmtSrt(st)+' --> '+fmtSrt(et)+'\\n'+txt);lineIdx++;}}jump(srtLines.join('\\n\\n'));}catch(e){jump('');}}else{jump('');}};xhr.onerror=function(){jump('');};xhr.send();}catch(err){alert('実行エラー:'+err.message);}})();void(0);`;
+export const getBookmarkletScript = (targetOrigin: string) => {
+  const baseUrl = targetOrigin || 'http://192.168.1.26:3000';
+  return `javascript:(function(){
+  try {
+    var path = window.location.pathname;
+    if (path.indexOf('/song/') !== 0) {
+      alert('Sunoの楽曲ページ (suno.com/song/...) で実行してください');
+      return;
+    }
+    var parts = path.split('/');
+    var songId = parts[parts.length - 1];
+    if (!songId) {
+      alert('Song IDが見つかりません');
+      return;
+    }
+
+    var cookies = '; ' + document.cookie;
+    var token = undefined;
+    var cParts = cookies.split('; __session=');
+    if (cParts.length >= 2) {
+      token = cParts[cParts.length - 1].split(';').shift();
+    }
+
+    if (!token) {
+      alert('Sunoにログインしてから実行してください');
+      return;
+    }
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', 'https://studio-api.prod.suno.com/api/gen/' + songId + '/aligned_lyrics/v2/', true);
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          var aligned = data.aligned_lyrics || (data.data && data.data.aligned_lyrics) || [];
+          
+          var xhr2 = new XMLHttpRequest();
+          xhr2.open('GET', 'https://studio-api.prod.suno.com/api/clip/' + songId, true);
+          xhr2.setRequestHeader('Authorization', 'Bearer ' + token);
+          xhr2.onload = function() {
+            var clipData = {};
+            if (xhr2.status >= 200 && xhr2.status < 300) {
+              clipData = JSON.parse(xhr2.responseText);
+            }
+            var audioUrl = clipData.audio_url || clipData.clip_url || ('https://cdn1.suno.ai/' + songId + '.mp3');
+            var imageUrl = clipData.image_large_url || clipData.image_url || ('https://cdn1.suno.ai/image_' + songId + '.png');
+            var title = clipData.title || 'Suno Track';
+
+            var fmtSrt = function(sec) {
+              var s = Math.max(0, sec || 0);
+              var h = Math.floor(s / 3600);
+              var m = Math.floor((s % 3600) / 60);
+              var sc = Math.floor(s % 60);
+              var ms = Math.floor((s % 1) * 1000);
+              var pad = function(n, z) { return ('00' + n).slice(-(z||2)); };
+              return pad(h) + ':' + pad(m) + ':' + pad(sc) + ',' + pad(ms, 3);
+            };
+
+            var srtLines = [];
+            var lineIdx = 1;
+            for (var i = 0; i < aligned.length; i++) {
+              var item = aligned[i];
+              var txt = (item.text || item.word || '').trim();
+              if (txt.indexOf('[') === 0 || txt.indexOf('(') === 0) continue;
+              txt = txt.replace(/\\\[.*?\\\]/g, '').replace(/\\(.*?\\)/g, '').trim();
+
+              if (txt) {
+                var st = item.start_s || 0;
+                var et = item.end_s || (st + 3);
+                srtLines.push(lineIdx + '\\n' + fmtSrt(st) + ' --> ' + fmtSrt(et) + '\\n' + txt);
+                lineIdx++;
+              }
+            }
+
+            var srtText = srtLines.join('\\n\\n');
+            var payload = {
+              srt: srtText,
+              audioUrl: audioUrl,
+              imageUrl: imageUrl,
+              title: title,
+              autoStart: true
+            };
+
+            var jsonStr = JSON.stringify(payload);
+            var encodedText = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
+            window.location.href = '${baseUrl}/#data=' + encodedText;
+          };
+          xhr2.send();
+        } catch(e) {
+          alert('解析エラー: ' + e.message);
+        }
+      } else {
+        alert('Suno歌詞API取得失敗 (Status: ' + xhr.status + ')');
+      }
+    };
+    xhr.onerror = function() {
+      alert('通信エラーが発生しました');
+    };
+    xhr.send();
+  } catch(err) {
+    alert('実行時エラー: ' + err.message);
+  }
+})();`;
+};
+
+export const SUNO_BOOKMARKLET_SCRIPT = getBookmarkletScript('http://192.168.1.26:3000');

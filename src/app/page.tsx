@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import { parseSRT, LyricLine } from '@/lib/srtParser';
-import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
+import { getBookmarkletScript } from '@/lib/bookmarklet';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -13,8 +13,16 @@ export default function Home() {
   const [lyricsData, setLyricsData] = useState<LyricLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
+  const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const currentOrigin = window.location.origin + window.location.pathname.replace(/\/$/, '');
+      setBookmarkletCode(getBookmarkletScript(currentOrigin));
+    }
+  }, []);
 
   const startKaraokeWithData = useCallback(async (
     targetAudioFile: File | null,
@@ -68,53 +76,49 @@ export default function Home() {
     const handleUrlParams = async () => {
       try {
         const hash = window.location.hash;
-        let songId = '';
-        let srtTextFromUrl = '';
+        let data: { srt?: string; srtText?: string; audioUrl?: string; mp3Url?: string; imageUrl?: string; title?: string; autoStart?: boolean } | null = null;
 
-        if (hash.includes('song=')) {
-          const params = new URLSearchParams(hash.replace('#', ''));
-          songId = params.get('song') || '';
-          srtTextFromUrl = params.get('lrc') || '';
-        } else if (hash.startsWith('#lrc=')) {
-          srtTextFromUrl = decodeURIComponent(hash.replace('#lrc=', ''));
+        if (hash.startsWith('#lrc=')) {
+          const lrcText = decodeURIComponent(hash.replace('#lrc=', ''));
+          const parsedLyrics = parseSRT(lrcText);
+          setLyricsData(parsedLyrics);
+          window.history.replaceState(null, '', window.location.pathname);
+        } else if (hash.startsWith('#data=')) {
+          const base64Str = decodeURIComponent(hash.replace('#data=', ''));
+          const jsonStr = decodeURIComponent(escape(atob(base64Str)));
+          data = JSON.parse(jsonStr);
+        } else if (hash.startsWith('#sunoData=')) {
+          const rawJson = decodeURIComponent(hash.replace('#sunoData=', ''));
+          data = JSON.parse(rawJson);
         }
 
-        if (songId) {
-          setIsLoading(true);
-          setLoadingStatus('Sunoから高画質カバーアート＆音源を準備中...');
-          
-          window.history.replaceState(null, '', window.location.pathname);
+        if (data) {
+          const srtContent = data.srt || data.srtText || '';
+          const audio = data.audioUrl || data.mp3Url || '';
+          const image = data.imageUrl || null;
+          const title = data.title || 'Suno AI Track';
 
           let parsedLyrics: LyricLine[] = [];
-          if (srtTextFromUrl) {
-            parsedLyrics = parseSRT(srtTextFromUrl);
+          if (srtContent) {
+            parsedLyrics = parseSRT(srtContent);
+            setLyricsData(parsedLyrics);
           }
+          if (audio) setAccompanimentAudioUrl(audio);
+          if (image) setBgImageUrl(image);
+          if (title) setSongTitle(title);
 
-          const audio = `https://cdn1.suno.ai/${songId}.mp3`;
-          const image = `https://cdn1.suno.ai/image_${songId}.png`;
+          window.history.replaceState(null, '', window.location.pathname);
 
-          // API から追加情報を試行
-          try {
-            const res = await fetch(`${BACKEND_URL}/api/suno-info?song_id=${songId}`);
-            if (res.ok) {
-              const info = await res.json();
-              if (info.title) setSongTitle(info.title);
-              if (!parsedLyrics.length && info.srt_text) {
-                parsedLyrics = parseSRT(info.srt_text);
-              }
-            }
-          } catch (e) {
-            console.warn('Info fetch error fallback', e);
+          if (audio) {
+            await startKaraokeWithData(null, audio, image, parsedLyrics);
           }
-
-          await startKaraokeWithData(null, audio, image, parsedLyrics);
         }
       } catch (err) {
         console.error('URLデータ連携エラー:', err);
       }
     };
     handleUrlParams();
-  }, [startKaraokeWithData, BACKEND_URL]);
+  }, [startKaraokeWithData]);
 
   if (isPlayingMode && accompanimentAudioUrl) {
     return (
@@ -199,8 +203,8 @@ export default function Home() {
             <textarea
               id="bookmarklet-textarea"
               readOnly
-              rows={3}
-              value={SUNO_BOOKMARKLET_SCRIPT}
+              rows={4}
+              value={bookmarkletCode}
               style={{
                 width: '100%',
                 backgroundColor: '#0f172a',
