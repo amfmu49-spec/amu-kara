@@ -254,7 +254,6 @@ export default function Home() {
 
       </div>
 
-      {/* ローディング時オーバーレイ */}
       {isLoading && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 999,
