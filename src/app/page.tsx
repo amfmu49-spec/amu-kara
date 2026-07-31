@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import { parseSRT, LyricLine } from '@/lib/srtParser';
-import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
+import { getBookmarkletScript } from '@/lib/bookmarklet';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -13,8 +13,16 @@ export default function Home() {
   const [lyricsData, setLyricsData] = useState<LyricLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
+  const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin + window.location.pathname.replace(/\/$/, '');
+      setBookmarkletCode(getBookmarkletScript(origin));
+    }
+  }, []);
 
   const startKaraokeWithData = useCallback(async (
     targetAudioFile: File | null,
@@ -180,7 +188,7 @@ export default function Home() {
             left: 0,
             right: 0,
             height: '6px',
-            background: 'gradient(90deg, #ec4899, #a855f7, #06b6d4)'
+            background: 'linear-gradient(90deg, #ec4899, #a855f7, #06b6d4)'
           }} />
 
           <div style={{ paddingTop: '8px' }}>
@@ -196,7 +204,7 @@ export default function Home() {
               id="bookmarklet-textarea"
               readOnly
               rows={3}
-              value={SUNO_BOOKMARKLET_SCRIPT}
+              value={bookmarkletCode}
               style={{
                 width: '100%',
                 backgroundColor: '#0f172a',

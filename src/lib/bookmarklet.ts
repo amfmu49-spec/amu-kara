@@ -1,7 +1,9 @@
 /**
- * 大成功したオリジナル構成 (100%完璧動作・ダイレクトデータ連携)
+ * 開いているページのアドレスへ100%確実に飛ぶ動的ブックマークレット
  */
-export const SUNO_BOOKMARKLET_SCRIPT = `javascript:(function(){
+export const getBookmarkletScript = (targetOrigin?: string) => {
+  const target = targetOrigin || 'https://amfmu49-spec.github.io/amu-kara';
+  return `javascript:(function(){
   try {
     var path = window.location.pathname;
     if (path.indexOf('/song/') !== 0) {
@@ -86,7 +88,7 @@ export const SUNO_BOOKMARKLET_SCRIPT = `javascript:(function(){
 
             var jsonStr = JSON.stringify(payload);
             var encodedText = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
-            window.location.href = 'http://192.168.1.26:3000/#data=' + encodedText;
+            window.location.href = '${target}/#data=' + encodedText;
           };
           xhr2.send();
         } catch(e) {
@@ -104,3 +106,6 @@ export const SUNO_BOOKMARKLET_SCRIPT = `javascript:(function(){
     alert('実行時エラー: ' + err.message);
   }
 })();`;
+};
+
+export const SUNO_BOOKMARKLET_SCRIPT = getBookmarkletScript('https://amfmu49-spec.github.io/amu-kara');
