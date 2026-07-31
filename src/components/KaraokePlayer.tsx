@@ -104,11 +104,11 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         midLowShelf.frequency.value = 200;
         midLowShelf.gain.value = 15.0;
 
-        // High-shelf: 5kHz 以上を部分復元 (+8dB → 0.18 * 2.51 ≈ 0.45)
+        // High-shelf: 3.5kHz 以上を強力復元 (+12dB → こもり解消)
         const midHighShelf = ctx.createBiquadFilter();
         midHighShelf.type = 'highshelf';
-        midHighShelf.frequency.value = 5000;
-        midHighShelf.gain.value = 8.0;
+        midHighShelf.frequency.value = 3500;
+        midHighShelf.gain.value = 12.0;
 
         // ボーカル帯域のみ精密ノッチ（より狭いQ = より楽器に影響少ない）
         const n1 = ctx.createBiquadFilter();
@@ -118,10 +118,10 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         n2.type = 'peaking'; n2.frequency.value = 1000; n2.Q.value = 1.5; n2.gain.value = -18;
 
         const n3 = ctx.createBiquadFilter();
-        n3.type = 'peaking'; n3.frequency.value = 2500; n3.Q.value = 1.8; n3.gain.value = -14;
+        n3.type = 'peaking'; n3.frequency.value = 2500; n3.Q.value = 2.0; n3.gain.value = -10;
 
         const n4 = ctx.createBiquadFilter();
-        n4.type = 'peaking'; n4.frequency.value = 4200; n4.Q.value = 2.5; n4.gain.value = -10;
+        n4.type = 'peaking'; n4.frequency.value = 4200; n4.Q.value = 2.5; n4.gain.value = -8;
 
         midGainRef.current = midGain;
         midLowShelfRef.current = midLowShelf;
@@ -133,9 +133,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
         // ---- Side channel (原音保持) ----
         const sideL = ctx.createGain();
-        sideL.gain.value = 0.55;
+        sideL.gain.value = 0.65;
         const sideR = ctx.createGain();
-        sideR.gain.value = -0.55; // 逆位相
+        sideR.gain.value = -0.65; // 逆位相
 
         // Side の重低音補強
         const sideLowBoost = ctx.createBiquadFilter();
@@ -194,13 +194,13 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     if (isVocalCut) {
       midGainRef.current.gain.value = 0.18;
       if (midLowShelfRef.current) midLowShelfRef.current.gain.value = 15.0;
-      if (midHighShelfRef.current) midHighShelfRef.current.gain.value = 8.0;
+      if (midHighShelfRef.current) midHighShelfRef.current.gain.value = 12.0;
       if (notch1Ref.current) notch1Ref.current.gain.value = -12;
       if (notch2Ref.current) notch2Ref.current.gain.value = -18;
-      if (notch3Ref.current) notch3Ref.current.gain.value = -14;
-      if (notch4Ref.current) notch4Ref.current.gain.value = -10;
-      if (sideLGainRef.current) sideLGainRef.current.gain.value = 0.55;
-      if (sideRGainRef.current) sideRGainRef.current.gain.value = -0.55;
+      if (notch3Ref.current) notch3Ref.current.gain.value = -10;
+      if (notch4Ref.current) notch4Ref.current.gain.value = -8;
+      if (sideLGainRef.current) sideLGainRef.current.gain.value = 0.65;
+      if (sideRGainRef.current) sideRGainRef.current.gain.value = -0.65;
     } else {
       midGainRef.current.gain.value = 0.5;
       if (midLowShelfRef.current) midLowShelfRef.current.gain.value = 0;
