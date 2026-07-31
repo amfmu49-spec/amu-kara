@@ -1,9 +1,7 @@
 /**
- * 「きたーーーー！」大成功実績コード（100%動作保証・動的ターゲット対応）
+ * ローカルWi-Fi (http://192.168.1.26:3000) 完全対応版 ブックマークレット
  */
-export const getBookmarkletScript = (targetOrigin: string) => {
-  const baseUrl = targetOrigin || 'http://192.168.1.26:3000';
-  return `javascript:(function(){
+export const SUNO_BOOKMARKLET_SCRIPT = `javascript:(function(){
   try {
     var path = window.location.pathname;
     if (path.indexOf('/song/') !== 0) {
@@ -88,7 +86,9 @@ export const getBookmarkletScript = (targetOrigin: string) => {
 
             var jsonStr = JSON.stringify(payload);
             var encodedText = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
-            window.location.href = '${baseUrl}/#data=' + encodedText;
+            
+            // ボーカル分離AIサーバーと同セキュアコンテキスト(HTTP 192.168.1.26)へ確実に転送
+            window.location.href = 'http://192.168.1.26:3000/#data=' + encodedText;
           };
           xhr2.send();
         } catch(e) {
@@ -106,6 +106,3 @@ export const getBookmarkletScript = (targetOrigin: string) => {
     alert('実行時エラー: ' + err.message);
   }
 })();`;
-};
-
-export const SUNO_BOOKMARKLET_SCRIPT = getBookmarkletScript('http://192.168.1.26:3000');

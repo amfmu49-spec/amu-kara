@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import { parseSRT, LyricLine } from '@/lib/srtParser';
-import { getBookmarkletScript } from '@/lib/bookmarklet';
+import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -13,14 +13,15 @@ export default function Home() {
   const [lyricsData, setLyricsData] = useState<LyricLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
-  const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
+  const [isHttpsPage, setIsHttpsPage] = useState(false);
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const currentOrigin = window.location.origin + window.location.pathname.replace(/\/$/, '');
-      setBookmarkletCode(getBookmarkletScript(currentOrigin));
+      if (window.location.protocol === 'https:') {
+        setIsHttpsPage(true);
+      }
     }
   }, []);
 
@@ -169,6 +170,23 @@ export default function Home() {
           </p>
         </header>
 
+        {/* HTTPS混在コンテンツ制限メッセージ */}
+        {isHttpsPage && (
+          <div style={{
+            width: '100%',
+            backgroundColor: '#eff6ff',
+            border: '1.5px solid #60a5fa',
+            borderRadius: '16px',
+            padding: '12px 16px',
+            marginBottom: '14px',
+            boxSizing: 'border-box'
+          }}>
+            <p style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold', margin: 0, lineHeight: 1.5 }}>
+              💡 スマホで同じWi-Fi内の <a href="http://192.168.1.26:3000" style={{ textDecoration: 'underline', color: '#2563eb' }}>http://192.168.1.26:3000</a> を開いてお試しください（ボーカル分離AIサーバーと直接連携するため）。
+            </p>
+          </div>
+        )}
+
         {/* メイン白基調カード */}
         <div style={{
           width: '100%',
@@ -204,7 +222,7 @@ export default function Home() {
               id="bookmarklet-textarea"
               readOnly
               rows={4}
-              value={bookmarkletCode}
+              value={SUNO_BOOKMARKLET_SCRIPT}
               style={{
                 width: '100%',
                 backgroundColor: '#0f172a',
