@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import { parseSRT, LyricLine } from '@/lib/srtParser';
-import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
+import { getBookmarkletScript } from '@/lib/bookmarklet';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -14,6 +14,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
   const [isHttpsPage, setIsHttpsPage] = useState(false);
+  const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
 
@@ -22,6 +23,8 @@ export default function Home() {
       if (window.location.protocol === 'https:') {
         setIsHttpsPage(true);
       }
+      const origin = window.location.origin + window.location.pathname.replace(/\/$/, '');
+      setBookmarkletCode(getBookmarkletScript(origin));
     }
   }, []);
 
@@ -222,7 +225,7 @@ export default function Home() {
               id="bookmarklet-textarea"
               readOnly
               rows={4}
-              value={SUNO_BOOKMARKLET_SCRIPT}
+              value={bookmarkletCode}
               style={{
                 width: '100%',
                 backgroundColor: '#0f172a',
