@@ -14,6 +14,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
   const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
+  const [isHttps, setIsHttps] = useState(false);
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
 
@@ -21,6 +22,9 @@ export default function Home() {
     if (typeof window !== 'undefined') {
       const origin = window.location.origin + window.location.pathname.replace(/\/$/, '');
       setBookmarkletCode(getBookmarkletScript(origin));
+      if (window.location.protocol === 'https:') {
+        setIsHttps(true);
+      }
     }
   }, []);
 
@@ -168,6 +172,28 @@ export default function Home() {
             全自動 AI ボーカル抽出 ＆ 高精度カラオケ
           </p>
         </header>
+
+        {/* HTTPS混在コンテンツ警告バナー */}
+        {isHttps && (
+          <div style={{
+            width: '100%',
+            backgroundColor: '#fdf2f8',
+            border: '2px solid #f472b6',
+            borderRadius: '16px',
+            padding: '14px',
+            marginBottom: '16px',
+            boxSizing: 'border-box',
+            textAlign: 'left'
+          }}>
+            <p style={{ fontSize: '12px', color: '#be185d', fontWeight: 'bold', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span>⚠️</span>
+              <span>ボーカル消去をご利用の皆様へ</span>
+            </p>
+            <p style={{ fontSize: '11px', color: '#9d174d', margin: 0, lineHeight: 1.5 }}>
+              現在 GitHub Pages (HTTPS) でご覧いただいています。ブラウザのセキュリティ制限（Mixed Content）を回避して**AIボーカル消去を100%機能させるため**、スマホで同じWi-Fi内の <a href="http://192.168.1.26:3000" style={{ fontWeight: 'bold', color: '#db2777', textDecoration: 'underline' }}>http://192.168.1.26:3000</a> を開いてお試しください！
+            </p>
+          </div>
+        )}
 
         {/* メイン白基調カード */}
         <div style={{
