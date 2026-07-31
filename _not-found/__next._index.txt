@@ -1,5 +1,47 @@
 1:"$Sreact.fragment"
-2:I[39756,["/amu-kara/_next/static/chunks/158myu8e_yme3.js"],"default"]
-3:I[37457,["/amu-kara/_next/static/chunks/158myu8e_yme3.js"],"default"]
-:HL["/amu-kara/_next/static/chunks/3h60-r2wkp5xu.css","style"]
-0:{"rsc":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/amu-kara/_next/static/chunks/3h60-r2wkp5xu.css","precedence":"next"}],["$","script","script-0",{"src":"/amu-kara/_next/static/chunks/158myu8e_yme3.js","async":true}]],["$","html",null,{"lang":"en","className":"geist_a71539c9-module__T19VSG__variable geist_mono_8d43a2aa-module__8Li5zG__variable h-full antialiased","children":["$","body",null,{"className":"min-h-full flex flex-col","children":["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}],"notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]]}]}]],[]]}]}]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"39oe0bG7pAriAXPg09Fdv"}
+3:I[39756,["/amu-kara/_next/static/chunks/158myu8e_yme3.js"],"default"]
+4:I[37457,["/amu-kara/_next/static/chunks/158myu8e_yme3.js"],"default"]
+:HL["/amu-kara/_next/static/chunks/44t0liwzitp54.css","style"]
+2:T8c3,
+          * { box-sizing: border-box; }
+          body {
+            background-color: #f8fafc !important;
+            color: #1e293b !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            margin: 0; padding: 0; min-height: 100vh;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+          }
+          .app-container {
+            width: 100%; max-width: 440px; margin: 0 auto; padding: 16px;
+            display: flex; flex-direction: column; align-items: center;
+          }
+          .app-logo {
+            max-width: 280px !important; width: 85% !important; height: auto !important;
+            border-radius: 16px; box-shadow: 0 10px 25px rgba(236, 72, 153, 0.25);
+          }
+          .main-card {
+            width: 100%; background: #ffffff !important;
+            border: 2px solid #e2e8f0 !important; border-radius: 24px !important;
+            padding: 24px !important; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.08) !important;
+            position: relative; overflow: hidden; margin-top: 16px;
+          }
+          .ai-top-line {
+            position: absolute; top: 0; left: 0; right: 0; height: 6px;
+            background: linear-gradient(90deg, #ec4899, #a855f7, #06b6d4) !important;
+          }
+          .code-box {
+            width: 100%; background-color: #0f172a !important; color: #4ade80 !important;
+            font-family: monospace !important; font-size: 16px !important; padding: 12px !important;
+            border-radius: 12px !important; border: 1px solid #1e293b !important;
+            box-sizing: border-box; margin: 12px 0 !important; outline: none;
+          }
+          .copy-btn {
+            width: 100%; padding: 14px 20px !important;
+            background: linear-gradient(90deg, #9333ea, #db2777, #06b6d4) !important;
+            color: #ffffff !important; font-weight: bold !important; font-size: 14px !important;
+            border: none !important; border-radius: 14px !important; cursor: pointer;
+            box-shadow: 0 4px 14px rgba(219, 39, 119, 0.3) !important; transition: transform 0.1s;
+          }
+          .copy-btn:active { transform: scale(0.97); }
+        0:{"rsc":["$","$1","c",{"children":[[["$","link","0",{"rel":"stylesheet","href":"/amu-kara/_next/static/chunks/44t0liwzitp54.css","precedence":"next"}],["$","script","script-0",{"src":"/amu-kara/_next/static/chunks/158myu8e_yme3.js","async":true}]],["$","html",null,{"lang":"ja","children":[["$","head",null,{"children":[["$","meta",null,{"name":"viewport","content":"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"}],["$","style",null,{"children":"$2"}]]}],["$","body",null,{"children":["$","$L3",null,{"parallelRouterKey":"children","template":["$","$L4",null,{}],"notFound":[[["$","title",null,{"children":"404: This page could not be found."}],["$","div",null,{"style":{"fontFamily":"system-ui,\"Segoe UI\",Roboto,Helvetica,Arial,sans-serif,\"Apple Color Emoji\",\"Segoe UI Emoji\"","height":"100vh","textAlign":"center","display":"flex","flexDirection":"column","alignItems":"center","justifyContent":"center"},"children":["$","div",null,{"children":[["$","style",null,{"dangerouslySetInnerHTML":{"__html":"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}}],["$","h1",null,{"className":"next-error-h1","style":{"display":"inline-block","margin":"0 20px 0 0","padding":"0 23px 0 0","fontSize":24,"fontWeight":500,"verticalAlign":"top","lineHeight":"49px"},"children":404}],"$L5"]}]}]],[]]}]}]]}]]}],"isPartial":false,"staleTime":300,"varyParams":null,"buildId":"lVs-S72pAq5woYEjGaZeM"}
+5:["$","div",null,{"style":{"display":"inline-block"},"children":["$","h2",null,{"style":{"fontSize":14,"fontWeight":400,"lineHeight":"49px","margin":0},"children":"This page could not be found."}]}]
