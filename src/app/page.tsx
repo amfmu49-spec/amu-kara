@@ -6,7 +6,7 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
-export const APP_VERSION = 'v2.6.0 (Full Stereo Reverb Cut)';
+export const APP_VERSION = 'v2.7.0 (Hi-Fi Pristine Audio)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');

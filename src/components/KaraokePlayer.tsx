@@ -24,9 +24,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const midSumRef = useRef<GainNode | null>(null);
-  const midNotch1Ref = useRef<BiquadFilterNode | null>(null);
-  const midNotch2Ref = useRef<BiquadFilterNode | null>(null);
-  const sideNotchRef = useRef<BiquadFilterNode | null>(null);
+  const midNotchRef = useRef<BiquadFilterNode | null>(null);
   const sideRRef = useRef<GainNode | null>(null);
   const sideLRef = useRef<GainNode | null>(null);
 
@@ -66,7 +64,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // Mid ＋ Side 二重残響ボーカル挟み撃ち消去 DSP (v2.6.0)
+  // Hi-Fi 黄金 M/S 音響バランス ＆ 原音保持 DSP (v2.7.0)
   const handleUserUnlockAndPlay = async () => {
     try {
       if (!audioCtxRef.current) {
@@ -85,46 +83,31 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         const splitter = ctx.createChannelSplitter(2);
         const merger = ctx.createChannelMerger(2);
 
-        // 1. Mid (センターボーカル) チャンネル
+        // 1. Mid (センターボーカル) チャンネル (適正ゲイン 0.30)
         const midSum = ctx.createGain();
-        midSum.gain.value = 0.05;
+        midSum.gain.value = 0.30;
 
-        // 2. Side (左右 L - R 逆相相殺) 回路
+        // 2. Side (伴奏ステレオ広がり) チャンネル (原音100%保持 ゲイン 0.65)
         const sideL = ctx.createGain();
-        sideL.gain.value = 0.70;
+        sideL.gain.value = 0.65;
         const sideR = ctx.createGain();
-        sideR.gain.value = -0.70;
+        sideR.gain.value = -0.65; // 相殺用逆位相
 
-        // 3. Mid ダブル・ディープノッチ (-60dB)
-        const midNotch1 = ctx.createBiquadFilter();
-        midNotch1.type = 'peaking';
-        midNotch1.frequency.value = 1000;
-        midNotch1.Q.value = 0.6;
-        midNotch1.gain.value = -60;
+        // 3. Mid ボーカル核心ピンポイントシャープノッチ (-24dB, Q=2.0)
+        const midNotch = ctx.createBiquadFilter();
+        midNotch.type = 'peaking';
+        midNotch.frequency.value = 1200;
+        midNotch.Q.value = 2.0; // 鋭く音質を壊さない
+        midNotch.gain.value = -24;
 
-        const midNotch2 = ctx.createBiquadFilter();
-        midNotch2.type = 'peaking';
-        midNotch2.frequency.value = 2400;
-        midNotch2.Q.value = 0.8;
-        midNotch2.gain.value = -50;
-
-        // 4. Side (左右の広がり成分) からも残響エコー・コーラス歌声をノッチカット (-32dB)
-        const sideNotch = ctx.createBiquadFilter();
-        sideNotch.type = 'peaking';
-        sideNotch.frequency.value = 1500;
-        sideNotch.Q.value = 0.5; // 広帯域
-        sideNotch.gain.value = -32;
-
-        // 5. 重低音ブースト (250Hz +4dB)
-        const warmLow = ctx.createBiquadFilter();
-        warmLow.type = 'peaking';
-        warmLow.frequency.value = 250;
-        warmLow.gain.value = 4.0;
+        // 4. 高音質 Low-Shelf & High-Shelf (伴奏の質感完全保持)
+        const lowBoost = ctx.createBiquadFilter();
+        lowBoost.type = 'lowshelf';
+        lowBoost.frequency.value = 120;
+        lowBoost.gain.value = 3.0;
 
         midSumRef.current = midSum;
-        midNotch1Ref.current = midNotch1;
-        midNotch2Ref.current = midNotch2;
-        sideNotchRef.current = sideNotch;
+        midNotchRef.current = midNotch;
         sideLRef.current = sideL;
         sideRRef.current = sideR;
 
@@ -134,23 +117,21 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         // Mid チャンネル
         splitter.connect(midSum, 0);
         splitter.connect(midSum, 1);
-        midSum.connect(midNotch1);
-        midNotch1.connect(midNotch2);
-        midNotch2.connect(warmLow);
-        warmLow.connect(merger, 0, 0);
-        warmLow.connect(merger, 0, 1);
+        midSum.connect(midNotch);
+        midNotch.connect(merger, 0, 0);
+        midNotch.connect(merger, 0, 1);
 
-        // Side チャンネル (SideNotch を通して左右のリバーブ歌声を撃破)
+        // Side チャンネル (伴奏広がりはイコライザーで削らず原音100%通過)
         splitter.connect(sideL, 0);
         splitter.connect(sideR, 1);
-        sideL.connect(sideNotch);
-        sideR.connect(sideNotch);
+        sideL.connect(lowBoost);
+        sideR.connect(lowBoost);
 
-        sideNotch.connect(merger, 0, 0); // Left
+        lowBoost.connect(merger, 0, 0); // Left
         const sideInvertR = ctx.createGain();
         sideInvertR.gain.value = -1.0;
-        sideNotch.connect(sideInvertR);
-        sideInvertR.connect(merger, 0, 1); // Right (逆位相合成)
+        lowBoost.connect(sideInvertR);
+        sideInvertR.connect(merger, 0, 1); // Right
 
         merger.connect(ctx.destination);
       }
@@ -166,21 +147,17 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   };
 
   useEffect(() => {
-    if (sideLRef.current && sideRRef.current && midSumRef.current && midNotch1Ref.current && midNotch2Ref.current && sideNotchRef.current) {
+    if (sideLRef.current && sideRRef.current && midSumRef.current && midNotchRef.current) {
       if (isVocalCut) {
-        midSumRef.current.gain.value = 0.05;
-        sideLRef.current.gain.value = 0.70;
-        sideRRef.current.gain.value = -0.70;
-        midNotch1Ref.current.gain.value = -60;
-        midNotch2Ref.current.gain.value = -50;
-        sideNotchRef.current.gain.value = -32;
+        midSumRef.current.gain.value = 0.30;
+        sideLRef.current.gain.value = 0.65;
+        sideRRef.current.gain.value = -0.65;
+        midNotchRef.current.gain.value = -24;
       } else {
         midSumRef.current.gain.value = 0.5;
         sideLRef.current.gain.value = 0.5;
         sideRRef.current.gain.value = 0.5;
-        midNotch1Ref.current.gain.value = 0;
-        midNotch2Ref.current.gain.value = 0;
-        sideNotchRef.current.gain.value = 0;
+        midNotchRef.current.gain.value = 0;
       }
     }
   }, [isVocalCut]);
@@ -318,7 +295,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             {title || 'AMU KARA'}
           </h1>
           <span style={{ fontSize: '9px', background: '#ec4899', color: '#ffffff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>
-            v2.6.0
+            v2.7.0
           </span>
         </div>
 
