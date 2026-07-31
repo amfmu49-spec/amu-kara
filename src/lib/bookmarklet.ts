@@ -97,7 +97,7 @@ export const SUNO_BOOKMARKLET_SCRIPT = `javascript:(function(){
 
             var jsonStr = JSON.stringify(payload);
             var encodedText = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
-            window.location.href = 'http://192.168.1.26:3000/#data=' + encodedText;
+            window.location.href = 'https://amfmu49-spec.github.io/amu-kara/#data=' + encodedText;
           };
           xhr2.send();
         } catch(e) {
