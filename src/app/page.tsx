@@ -23,8 +23,6 @@ export default function Home() {
       if (window.location.protocol === 'https:') {
         setIsHttpsPage(true);
       }
-      const origin = window.location.origin + window.location.pathname.replace(/\/$/, '');
-      setBookmarkletCode(getBookmarkletScript(origin));
     }
   }, []);
 
