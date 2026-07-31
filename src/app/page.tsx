@@ -142,7 +142,7 @@ export default function Home() {
       {/* Header with New Logo */}
       <header className="w-full max-w-md text-center py-4 flex flex-col items-center">
         <img
-          src="/logo_cropped.png"
+          src="logo_cropped.png"
           alt="AMU KARA Logo"
           className="w-64 h-auto rounded-2xl shadow-xl shadow-pink-500/20 border border-slate-900/80 hover:scale-105 transition transform"
         />

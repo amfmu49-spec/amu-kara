@@ -98,7 +98,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         </button>
         <div className="flex flex-col items-center">
           <img
-            src="/logo_cropped.png"
+            src="logo_cropped.png"
             alt="AMU KARA Logo"
             className="h-10 w-auto rounded-lg shadow-sm"
           />
