@@ -25,6 +25,8 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   // Refs for dynamic control
   const midGainRef = useRef<GainNode | null>(null);
+  const midLowShelfRef = useRef<BiquadFilterNode | null>(null);
+  const midHighShelfRef = useRef<BiquadFilterNode | null>(null);
   const notch1Ref = useRef<BiquadFilterNode | null>(null);
   const notch2Ref = useRef<BiquadFilterNode | null>(null);
   const notch3Ref = useRef<BiquadFilterNode | null>(null);
@@ -63,31 +65,18 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   /*
    * ============================================================
-   *  v3.1.0 — Best-effort browser DSP vocal reduction
+   *  v3.2.0 — 帯域別 Mid 制御（音質改善版）
    * ============================================================
    *
-   *  原理: Mid/Side 分離
-   *    Mid = (L + R) / 2   ← ボーカルが集中するセンター
-   *    Side = (L - R) / 2  ← 伴奏のステレオ広がり
+   *  問題: v3.1.0 は Mid 全帯域を -18dB で一律カットしていた
+   *        → ベース・キック・シンバルも消えて音質が劣悪
    *
-   *  Mid に対して:
-   *    1. 全体ゲインを 0.12 に下げる（-18dB）
-   *    2. ボーカル帯域に4段ノッチフィルタを直列接続
-   *       - 300Hz  Q=1.5  -20dB  (男性ボーカル基音)
-   *       - 1000Hz Q=1.0  -28dB  (ボーカルフォルマント核心)
-   *       - 2500Hz Q=1.2  -24dB  (ボーカルプレゼンス)
-   *       - 4500Hz Q=1.5  -18dB  (サ行・子音)
+   *  解決: 帯域別にMid のカット量を変える
+   *    ~200Hz:  0dB (フル復元) ← Low-shelf +15dB で補償
+   *    200-5kHz: -15dB + ノッチ ← ボーカル帯域のみ強力カット
+   *    5kHz~:   -7dB (大幅復元) ← High-shelf +8dB で補償
    *
-   *  Side に対して:
-   *    - ゲイン 0.55（イコライザーは一切かけず原音保持）
-   *    - Low-Shelf 120Hz +3dB で重低音を補う
-   *
-   *  再合成:
-   *    L_out = Mid_processed + Side_processed
-   *    R_out = Mid_processed - Side_processed
-   *
-   *  ※ コンプレッサーは不使用（浮つき防止）
-   *  ※ Side にノッチは不使用（音質劣化防止）
+   *  結果: ベースとキックは原曲品質、シンバルも生き残る
    * ============================================================
    */
   const handleUserUnlockAndPlay = async () => {
@@ -105,29 +94,44 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         const splitter = ctx.createChannelSplitter(2);
         const merger = ctx.createChannelMerger(2);
 
-        // ---- Mid channel ----
+        // ---- Mid channel (帯域別制御) ----
         const midGain = ctx.createGain();
-        midGain.gain.value = 0.12; // -18dB（ボーカルを大幅に押し下げる）
+        midGain.gain.value = 0.18; // -15dB ベースライン
 
+        // Low-shelf: 200Hz 以下をフル復元 (+15dB → 0.18 * 5.62 ≈ 1.0)
+        const midLowShelf = ctx.createBiquadFilter();
+        midLowShelf.type = 'lowshelf';
+        midLowShelf.frequency.value = 200;
+        midLowShelf.gain.value = 15.0;
+
+        // High-shelf: 5kHz 以上を部分復元 (+8dB → 0.18 * 2.51 ≈ 0.45)
+        const midHighShelf = ctx.createBiquadFilter();
+        midHighShelf.type = 'highshelf';
+        midHighShelf.frequency.value = 5000;
+        midHighShelf.gain.value = 8.0;
+
+        // ボーカル帯域のみ精密ノッチ（より狭いQ = より楽器に影響少ない）
         const n1 = ctx.createBiquadFilter();
-        n1.type = 'peaking'; n1.frequency.value = 300; n1.Q.value = 1.5; n1.gain.value = -20;
+        n1.type = 'peaking'; n1.frequency.value = 350; n1.Q.value = 2.0; n1.gain.value = -12;
 
         const n2 = ctx.createBiquadFilter();
-        n2.type = 'peaking'; n2.frequency.value = 1000; n2.Q.value = 1.0; n2.gain.value = -28;
+        n2.type = 'peaking'; n2.frequency.value = 1000; n2.Q.value = 1.5; n2.gain.value = -18;
 
         const n3 = ctx.createBiquadFilter();
-        n3.type = 'peaking'; n3.frequency.value = 2500; n3.Q.value = 1.2; n3.gain.value = -24;
+        n3.type = 'peaking'; n3.frequency.value = 2500; n3.Q.value = 1.8; n3.gain.value = -14;
 
         const n4 = ctx.createBiquadFilter();
-        n4.type = 'peaking'; n4.frequency.value = 4500; n4.Q.value = 1.5; n4.gain.value = -18;
+        n4.type = 'peaking'; n4.frequency.value = 4200; n4.Q.value = 2.5; n4.gain.value = -10;
 
         midGainRef.current = midGain;
+        midLowShelfRef.current = midLowShelf;
+        midHighShelfRef.current = midHighShelf;
         notch1Ref.current = n1;
         notch2Ref.current = n2;
         notch3Ref.current = n3;
         notch4Ref.current = n4;
 
-        // ---- Side channel ----
+        // ---- Side channel (原音保持) ----
         const sideL = ctx.createGain();
         sideL.gain.value = 0.55;
         const sideR = ctx.createGain();
@@ -145,10 +149,12 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         // ---- ノード接続 ----
         sourceNodeRef.current.connect(splitter);
 
-        // Mid: Splitter(L,R) -> midGain -> n1 -> n2 -> n3 -> n4 -> merger(L,R)
+        // Mid: Splitter(L,R) -> midGain -> lowShelf -> highShelf -> n1 -> n2 -> n3 -> n4 -> merger
         splitter.connect(midGain, 0);
         splitter.connect(midGain, 1);
-        midGain.connect(n1);
+        midGain.connect(midLowShelf);
+        midLowShelf.connect(midHighShelf);
+        midHighShelf.connect(n1);
         n1.connect(n2);
         n2.connect(n3);
         n3.connect(n4);
@@ -156,10 +162,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         n4.connect(merger, 0, 1);
 
         // Side: Splitter -> sideL(0) / sideR(1) -> lowBoost -> merger
-        //   sideL + sideR の和が Side 信号
-        //   merger(0,0) に足すと L_out = Mid + Side
-        //   merger(0,1) に足すと R_out = Mid + Side だが、
-        //   sideR は逆位相なので R_out = Mid - Side になる
         splitter.connect(sideL, 0);
         splitter.connect(sideR, 1);
         sideL.connect(sideLowBoost);
@@ -190,15 +192,19 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   useEffect(() => {
     if (!midGainRef.current) return;
     if (isVocalCut) {
-      midGainRef.current.gain.value = 0.12;
-      if (notch1Ref.current) notch1Ref.current.gain.value = -20;
-      if (notch2Ref.current) notch2Ref.current.gain.value = -28;
-      if (notch3Ref.current) notch3Ref.current.gain.value = -24;
-      if (notch4Ref.current) notch4Ref.current.gain.value = -18;
+      midGainRef.current.gain.value = 0.18;
+      if (midLowShelfRef.current) midLowShelfRef.current.gain.value = 15.0;
+      if (midHighShelfRef.current) midHighShelfRef.current.gain.value = 8.0;
+      if (notch1Ref.current) notch1Ref.current.gain.value = -12;
+      if (notch2Ref.current) notch2Ref.current.gain.value = -18;
+      if (notch3Ref.current) notch3Ref.current.gain.value = -14;
+      if (notch4Ref.current) notch4Ref.current.gain.value = -10;
       if (sideLGainRef.current) sideLGainRef.current.gain.value = 0.55;
       if (sideRGainRef.current) sideRGainRef.current.gain.value = -0.55;
     } else {
       midGainRef.current.gain.value = 0.5;
+      if (midLowShelfRef.current) midLowShelfRef.current.gain.value = 0;
+      if (midHighShelfRef.current) midHighShelfRef.current.gain.value = 0;
       if (notch1Ref.current) notch1Ref.current.gain.value = 0;
       if (notch2Ref.current) notch2Ref.current.gain.value = 0;
       if (notch3Ref.current) notch3Ref.current.gain.value = 0;
@@ -254,7 +260,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ textAlign: 'center', maxWidth: '55%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v3.1.0</span>
+          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v3.2.0</span>
         </div>
         <button type="button" onClick={() => setIsVocalCut(!isVocalCut)} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: 'none', cursor: 'pointer', background: isVocalCut ? 'linear-gradient(90deg,#ec4899,#a855f7)' : '#475569', color: '#fff', boxShadow: isVocalCut ? '0 0 12px rgba(236,72,153,0.5)' : 'none' }}>
           {isVocalCut ? '🎤 ボーカル抑制: ON' : '🎤 原曲: OFF'}
