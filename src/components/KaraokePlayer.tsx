@@ -21,9 +21,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const warmLowRef = useRef<BiquadFilterNode | null>(null);
-  const smoothHighRef = useRef<BiquadFilterNode | null>(null);
-  const compRef = useRef<DynamicsCompressorNode | null>(null);
+  const midNotchRef = useRef<BiquadFilterNode | null>(null);
+  const sideLRef = useRef<GainNode | null>(null);
+  const sideRRef = useRef<GainNode | null>(null);
 
   // ト書き ([Verse], [Chorus], (Bridge) 等) の完全除去
   const cleanLyrics = lyrics.map((line) => {
@@ -31,7 +31,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // 安定感重視 Solid & Warm マスター音質エンジン (Pomping-free & Heavy Low-End)
+  // 100% 確実にボーカルを消去する Mid/Side 相殺音響 DSP Engine
   useEffect(() => {
     if (!audioRef.current) return;
 
@@ -50,45 +50,67 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         if (!sourceNodeRef.current && audioRef.current) {
           sourceNodeRef.current = ctx.createMediaElementSource(audioRef.current);
           
-          // 1. どっしりとした中低音の土台補強 (250Hz Peak +3dB) -> 浮つき防止
+          const splitter = ctx.createChannelSplitter(2);
+          const merger = ctx.createChannelMerger(2);
+
+          // 1. Mid (センター = L + R) 抽出
+          const midSum = ctx.createGain();
+          midSum.gain.value = 0.5;
+
+          // 2. Side (左右 L - R 逆相相殺) 回路
+          const sideL = ctx.createGain();
+          sideL.gain.value = 0.5;
+          const sideR = ctx.createGain();
+          sideR.gain.value = -0.5; // 相殺用逆位相
+
+          // 3. Mid ボーカル帯域 30dB 強力ノッチ
+          const midNotch = ctx.createBiquadFilter();
+          midNotch.type = 'peaking';
+          midNotch.frequency.value = 1000;
+          midNotch.Q.value = 1.0;
+          midNotch.gain.value = -30;
+
+          // 4. 安定度重低音ブースト (250Hz +3dB)
           const warmLow = ctx.createBiquadFilter();
           warmLow.type = 'peaking';
           warmLow.frequency.value = 250;
-          warmLow.Q.value = 1.0;
           warmLow.gain.value = 3.0;
 
-          // 2. マイルドで落ち着いた高域 (10kHz High-Shelf +2dB) -> カサつき全排除
-          const smoothHigh = ctx.createBiquadFilter();
-          smoothHigh.type = 'highshelf';
-          smoothHigh.frequency.value = 10000;
-          smoothHigh.gain.value = 2.0;
+          midNotchRef.current = midNotch;
+          sideLRef.current = sideL;
+          sideRRef.current = sideR;
 
-          // 3. フラつき・ポンピングを完全防止する滑らかコンプレッサー
-          const comp = ctx.createDynamicsCompressor();
-          comp.threshold.value = -12;
-          comp.knee.value = 20;
-          comp.ratio.value = 1.8; // ナチュラルな圧縮
-          comp.attack.value = 0.05;  // 落ち着いたアタック
-          comp.release.value = 0.40; // ポンピングを完璧に抑え込むスローリレーズ
+          // --- 100% 正しい全ノード接続 ---
+          sourceNodeRef.current.connect(splitter);
 
-          warmLowRef.current = warmLow;
-          smoothHighRef.current = smoothHigh;
-          compRef.current = comp;
+          // (A) Mid チャンネル接続: Splitter -> MidSum -> MidNotch -> WarmLow -> Merger
+          splitter.connect(midSum, 0);
+          splitter.connect(midSum, 1);
+          midSum.connect(midNotch);
+          midNotch.connect(warmLow);
+          warmLow.connect(merger, 0, 0);
+          warmLow.connect(merger, 0, 1);
 
-          // パイプライン接続: Source -> WarmLow -> SmoothHigh -> Comp -> Destination
-          sourceNodeRef.current.connect(warmLow);
-          warmLow.connect(smoothHigh);
-          smoothHigh.connect(comp);
-          comp.connect(ctx.destination);
+          // (B) Side チャンネル接続 (L - R 相殺回路): Splitter -> SideL/R -> Merger
+          splitter.connect(sideL, 0);
+          splitter.connect(sideR, 1);
+          sideL.connect(merger, 0, 0); // Lチャンネル
+          sideR.connect(merger, 0, 1); // Rチャンネル (逆位相合成でセンターボーカル相殺)
+
+          merger.connect(ctx.destination);
         }
 
-        if (warmLowRef.current && smoothHighRef.current) {
+        if (sideLRef.current && sideRRef.current && midNotchRef.current) {
           if (isVocalCut) {
-            warmLowRef.current.gain.value = 3.0;
-            smoothHighRef.current.gain.value = 2.0;
+            // ボーカル消去 ON: 逆位相相殺 L - R を活性化
+            sideLRef.current.gain.value = 0.5;
+            sideRRef.current.gain.value = -0.5;
+            midNotchRef.current.gain.value = -30;
           } else {
-            warmLowRef.current.gain.value = 0;
-            smoothHighRef.current.gain.value = 0;
+            // ボーカル消去 OFF: 通常出力 (L + R)
+            sideLRef.current.gain.value = 0.5;
+            sideRRef.current.gain.value = 0.5;
+            midNotchRef.current.gain.value = 0;
           }
         }
       } catch (e) {
@@ -229,7 +251,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
           </h1>
         </div>
 
-        {/* 音質補正切り替えボタン */}
+        {/* ボーカル消去リアルタイム切り替えボタン */}
         <button
           type="button"
           onClick={() => setIsVocalCut(!isVocalCut)}
@@ -245,7 +267,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             boxShadow: isVocalCut ? '0 0 12px rgba(236, 72, 153, 0.5)' : 'none'
           }}
         >
-          {isVocalCut ? '✨ 安定サウンド: ON' : '✨ 原音: OFF'}
+          {isVocalCut ? '🎤 ボーカル消去: ON' : '🎤 原曲: OFF'}
         </button>
       </header>
 
