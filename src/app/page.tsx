@@ -13,17 +13,8 @@ export default function Home() {
   const [lyricsData, setLyricsData] = useState<LyricLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
-  const [isHttpsPage, setIsHttpsPage] = useState(false);
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (window.location.protocol === 'https:') {
-        setIsHttpsPage(true);
-      }
-    }
-  }, []);
 
   const startKaraokeWithData = useCallback(async (
     targetAudioFile: File | null,
@@ -77,64 +68,49 @@ export default function Home() {
     const handleUrlParams = async () => {
       try {
         const hash = window.location.hash;
-        let songId = '';
+        let data: { srt?: string; srtText?: string; audioUrl?: string; mp3Url?: string; imageUrl?: string; title?: string; autoStart?: boolean } | null = null;
 
-        if (hash.includes('song=')) {
-          const match = hash.match(/song=([a-f0-9\-]{36})/i) || hash.match(/song=([^&]+)/i);
-          if (match && match[1]) songId = match[1];
+        if (hash.startsWith('#lrc=')) {
+          const lrcText = decodeURIComponent(hash.replace('#lrc=', ''));
+          const parsedLyrics = parseSRT(lrcText);
+          setLyricsData(parsedLyrics);
+          window.history.replaceState(null, '', window.location.pathname);
+        } else if (hash.startsWith('#data=')) {
+          const base64Str = decodeURIComponent(hash.replace('#data=', ''));
+          const jsonStr = decodeURIComponent(escape(atob(base64Str)));
+          data = JSON.parse(jsonStr);
+        } else if (hash.startsWith('#sunoData=')) {
+          const rawJson = decodeURIComponent(hash.replace('#sunoData=', ''));
+          data = JSON.parse(rawJson);
         }
 
-        if (songId) {
-          // HTTPS (GitHub Pages) 上で受け取った場合は、Mixed Content 回避のためローカル HTTP へ全自動ブリッジリダイレクト
-          if (window.location.protocol === 'https:') {
-            window.location.href = `http://192.168.1.26:3000/#song=${songId}`;
-            return;
-          }
+        if (data) {
+          const srtContent = data.srt || data.srtText || '';
+          const audio = data.audioUrl || data.mp3Url || '';
+          const image = data.imageUrl || null;
+          const title = data.title || 'Suno AI Track';
 
-          setIsLoading(true);
-          setLoadingStatus('Sunoから高精度歌詞＆ジャケ写を自動抽出中...');
-          
+          let parsedLyrics: LyricLine[] = [];
+          if (srtContent) {
+            parsedLyrics = parseSRT(srtContent);
+            setLyricsData(parsedLyrics);
+          }
+          if (audio) setAccompanimentAudioUrl(audio);
+          if (image) setBgImageUrl(image);
+          if (title) setSongTitle(title);
+
           window.history.replaceState(null, '', window.location.pathname);
 
-          let currentAudio = `https://cdn1.suno.ai/${songId}.mp3`;
-          let currentImage = `https://cdn1.suno.ai/image_${songId}.png`;
-          let parsedLyrics: LyricLine[] = [];
-
-          try {
-            const res = await fetch(`${BACKEND_URL}/api/suno-info?song_id=${songId}`);
-            if (res.ok) {
-              const info = await res.json();
-              if (info.audio_url) currentAudio = info.audio_url;
-              if (info.image_url) currentImage = info.image_url;
-              if (info.title) setSongTitle(info.title);
-              if (info.srt_text) {
-                parsedLyrics = parseSRT(info.srt_text);
-              }
-            }
-          } catch (e) {
-            console.warn('Suno info fetch fallback', e);
+          if (audio) {
+            await startKaraokeWithData(null, audio, image, parsedLyrics);
           }
-
-          await startKaraokeWithData(null, currentAudio, currentImage, parsedLyrics);
-        } else if (hash.startsWith('#data=')) {
-          try {
-            const base64Str = decodeURIComponent(hash.replace('#data=', ''));
-            const jsonStr = decodeURIComponent(escape(atob(base64Str)));
-            const data = JSON.parse(jsonStr);
-            if (data && data.audioUrl) {
-              const parsed = data.srt ? parseSRT(data.srt) : [];
-              if (data.title) setSongTitle(data.title);
-              window.history.replaceState(null, '', window.location.pathname);
-              await startKaraokeWithData(null, data.audioUrl, data.imageUrl || null, parsed);
-            }
-          } catch (e) { console.warn(e); }
         }
       } catch (err) {
         console.error('URLデータ連携エラー:', err);
       }
     };
     handleUrlParams();
-  }, [startKaraokeWithData, BACKEND_URL]);
+  }, [startKaraokeWithData]);
 
   if (isPlayingMode && accompanimentAudioUrl) {
     return (
@@ -185,23 +161,6 @@ export default function Home() {
           </p>
         </header>
 
-        {/* HTTPS混在コンテンツ制限メッセージ */}
-        {isHttpsPage && (
-          <div style={{
-            width: '100%',
-            backgroundColor: '#eff6ff',
-            border: '1.5px solid #60a5fa',
-            borderRadius: '16px',
-            padding: '12px 16px',
-            marginBottom: '14px',
-            boxSizing: 'border-box'
-          }}>
-            <p style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold', margin: 0, lineHeight: 1.5 }}>
-              💡 スマホで同じWi-Fi内の <a href="http://192.168.1.26:3000" style={{ textDecoration: 'underline', color: '#2563eb' }}>http://192.168.1.26:3000</a> を開いてお試しくいただくと、直接AIボーカル分離が実行されます。
-            </p>
-          </div>
-        )}
-
         {/* メイン白基調カード */}
         <div style={{
           width: '100%',
@@ -221,7 +180,7 @@ export default function Home() {
             left: 0,
             right: 0,
             height: '6px',
-            background: 'linear-gradient(90deg, #ec4899, #a855f7, #06b6d4)'
+            background: 'gradient(90deg, #ec4899, #a855f7, #06b6d4)'
           }} />
 
           <div style={{ paddingTop: '8px' }}>
