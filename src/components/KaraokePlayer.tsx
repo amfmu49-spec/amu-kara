@@ -21,10 +21,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const notch1Ref = useRef<BiquadFilterNode | null>(null);
-  const notch2Ref = useRef<BiquadFilterNode | null>(null);
-  const notch3Ref = useRef<BiquadFilterNode | null>(null);
-  const notch4Ref = useRef<BiquadFilterNode | null>(null);
+  const highShelfRef = useRef<BiquadFilterNode | null>(null);
+  const lowShelfRef = useRef<BiquadFilterNode | null>(null);
+  const compRef = useRef<DynamicsCompressorNode | null>(null);
 
   // ト書き ([Verse], [Chorus], (Bridge) 等) の完全除去
   const cleanLyrics = lyrics.map((line) => {
@@ -32,7 +31,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // Mid/Side (M/S) ステレオ分離 ＆ 4段カスケード全帯域ボーカルノッチ DSP Engine
+  // Hi-Fi アタック ＆ ダイナミクス音質復元マスターイコライザー (High-Res Audio Enhancer)
   useEffect(() => {
     if (!audioRef.current) return;
 
@@ -51,107 +50,46 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         if (!sourceNodeRef.current && audioRef.current) {
           sourceNodeRef.current = ctx.createMediaElementSource(audioRef.current);
           
-          const splitter = ctx.createChannelSplitter(2);
-          const merger = ctx.createChannelMerger(2);
+          // 1. 高域アタック ＆ 煌めき復元 (8kHz High-Shelf +6dB)
+          const highShelf = ctx.createBiquadFilter();
+          highShelf.type = 'highshelf';
+          highShelf.frequency.value = 8000;
+          highShelf.gain.value = 6.0;
 
-          // 1. Mid (センター = L + R) 抽出
-          const midSum = ctx.createGain();
-          midSum.gain.value = 0.5;
+          // 2. 重低音 Sub-Bass パンチ補正 (100Hz Low-Shelf +5dB)
+          const lowShelf = ctx.createBiquadFilter();
+          lowShelf.type = 'lowshelf';
+          lowShelf.frequency.value = 100;
+          lowShelf.gain.value = 5.0;
 
-          // 2. Side (左右伴奏成分 = L - R) 抽出
-          const sideL = ctx.createGain();
-          sideL.gain.value = 0.5;
-          const sideR = ctx.createGain();
-          sideR.gain.value = -0.5;
+          // 3. こもり除去 ＆ 輪郭をクッキリ立たせるダイナミクス・コンプレッサー
+          const comp = ctx.createDynamicsCompressor();
+          comp.threshold.value = -16;
+          comp.knee.value = 12;
+          comp.ratio.value = 3;
+          comp.attack.value = 0.003;
+          comp.release.value = 0.15;
 
-          // 3. 4段カスケード・全帯域ボーカルアグレッシブノッチ
-          // [Notch 1] 低音ボーカル基音 (220Hz)
-          const n1 = ctx.createBiquadFilter();
-          n1.type = 'peaking';
-          n1.frequency.value = 220;
-          n1.Q.value = 1.5;
-          n1.gain.value = -24;
+          highShelfRef.current = highShelf;
+          lowShelfRef.current = lowShelf;
+          compRef.current = comp;
 
-          // [Notch 2] ボーカル中心コア (1000Hz)
-          const n2 = ctx.createBiquadFilter();
-          n2.type = 'peaking';
-          n2.frequency.value = 1000;
-          n2.Q.value = 1.0;
-          n2.gain.value = -30;
-
-          // [Notch 3] 高音伸び・子音 (2800Hz)
-          const n3 = ctx.createBiquadFilter();
-          n3.type = 'peaking';
-          n3.frequency.value = 2800;
-          n3.Q.value = 1.2;
-          n3.gain.value = -26;
-
-          // [Notch 4] サ行・タ行ノイズ (4500Hz)
-          const n4 = ctx.createBiquadFilter();
-          n4.type = 'peaking';
-          n4.frequency.value = 4500;
-          n4.Q.value = 1.5;
-          n4.gain.value = -20;
-
-          notch1Ref.current = n1;
-          notch2Ref.current = n2;
-          notch3Ref.current = n3;
-          notch4Ref.current = n4;
-
-          // 4. Side (伴奏広がり) 補強イコライザー (重低音 & 煌めきブーストで音圧保持)
-          const sideLowBoost = ctx.createBiquadFilter();
-          sideLowBoost.type = 'lowshelf';
-          sideLowBoost.frequency.value = 120;
-          sideLowBoost.gain.value = 5;
-
-          const sideHighBoost = ctx.createBiquadFilter();
-          sideHighBoost.type = 'highshelf';
-          sideHighBoost.frequency.value = 7000;
-          sideHighBoost.gain.value = 5;
-
-          // --- ノードパイプライン構築 ---
-          sourceNodeRef.current.connect(splitter);
-
-          // Mid (センター) 抽出 -> 4段ノッチ直列接続
-          splitter.connect(midSum, 0);
-          splitter.connect(midSum, 1);
-
-          midSum.connect(n1);
-          n1.connect(n2);
-          n2.connect(n3);
-          n3.connect(n4);
-
-          // Side (左右伴奏) 抽出 ＆ 伴奏ブースト
-          splitter.connect(sideL, 0);
-          splitter.connect(sideR, 1);
-          sideL.connect(sideLowBoost);
-          sideR.connect(sideLowBoost);
-          sideLowBoost.connect(sideHighBoost);
-
-          // 再合成 (L = Mid_clean + Side_boost, R = Mid_clean - Side_boost)
-          n4.connect(merger, 0, 0);
-          n4.connect(merger, 0, 1);
-
-          sideHighBoost.connect(merger, 0, 0); // Lチャンネル
-          const sideInvertR = ctx.createGain();
-          sideInvertR.gain.value = -1.0;
-          sideHighBoost.connect(sideInvertR);
-          sideInvertR.connect(merger, 0, 1); // Rチャンネル
-
-          merger.connect(ctx.destination);
+          // パイプライン接続: Source -> HighShelf -> LowShelf -> Comp -> Destination
+          sourceNodeRef.current.connect(highShelf);
+          highShelf.connect(lowShelf);
+          lowShelf.connect(comp);
+          comp.connect(ctx.destination);
         }
 
-        if (notch1Ref.current && notch2Ref.current && notch3Ref.current && notch4Ref.current) {
+        if (highShelfRef.current && lowShelfRef.current) {
           if (isVocalCut) {
-            notch1Ref.current.gain.value = -24;
-            notch2Ref.current.gain.value = -30;
-            notch3Ref.current.gain.value = -26;
-            notch4Ref.current.gain.value = -20;
+            // 音質補正 ON: 高域煌めき +6dB, 重低音 +5dB
+            highShelfRef.current.gain.value = 6.0;
+            lowShelfRef.current.gain.value = 5.0;
           } else {
-            notch1Ref.current.gain.value = 0;
-            notch2Ref.current.gain.value = 0;
-            notch3Ref.current.gain.value = 0;
-            notch4Ref.current.gain.value = 0;
+            // 原音 OFF: フラット
+            highShelfRef.current.gain.value = 0;
+            lowShelfRef.current.gain.value = 0;
           }
         }
       } catch (e) {
@@ -292,7 +230,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
           </h1>
         </div>
 
-        {/* ボーカル消去リアルタイム切り替えボタン */}
+        {/* 音質補正切り替えボタン */}
         <button
           type="button"
           onClick={() => setIsVocalCut(!isVocalCut)}
@@ -308,7 +246,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             boxShadow: isVocalCut ? '0 0 12px rgba(236, 72, 153, 0.5)' : 'none'
           }}
         >
-          {isVocalCut ? '🎤 ボーカル消去: ON' : '🎤 原曲: OFF'}
+          {isVocalCut ? '✨ Hi-Fi 音質復元: ON' : '✨ 原音: OFF'}
         </button>
       </header>
 
