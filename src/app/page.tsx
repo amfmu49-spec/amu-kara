@@ -6,7 +6,7 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
-export const APP_VERSION = 'v3.2.0 (Audio Quality Fix)';
+export const APP_VERSION = 'v3.2.1 (Anti-Muffling)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');

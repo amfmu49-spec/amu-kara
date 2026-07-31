@@ -65,7 +65,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   /*
    * ============================================================
-   *  v3.2.0 — 帯域別 Mid 制御（音質改善版）
+   *  v3.2.1 — こもり解消チューニング
    * ============================================================
    *
    *  問題: v3.1.0 は Mid 全帯域を -18dB で一律カットしていた
@@ -260,7 +260,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ textAlign: 'center', maxWidth: '55%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v3.2.0</span>
+          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v3.2.1</span>
         </div>
         <button type="button" onClick={() => setIsVocalCut(!isVocalCut)} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: 'none', cursor: 'pointer', background: isVocalCut ? 'linear-gradient(90deg,#ec4899,#a855f7)' : '#475569', color: '#fff', boxShadow: isVocalCut ? '0 0 12px rgba(236,72,153,0.5)' : 'none' }}>
           {isVocalCut ? '🎤 ボーカル抑制: ON' : '🎤 原曲: OFF'}
