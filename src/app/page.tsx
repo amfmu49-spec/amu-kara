@@ -14,7 +14,6 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
   const [isHttpsPage, setIsHttpsPage] = useState(false);
-  const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
 
@@ -86,6 +85,12 @@ export default function Home() {
         }
 
         if (songId) {
+          // HTTPS (GitHub Pages) 上で受け取った場合は、Mixed Content 回避のためローカル HTTP へ全自動ブリッジリダイレクト
+          if (window.location.protocol === 'https:') {
+            window.location.href = `http://192.168.1.26:3000/#song=${songId}`;
+            return;
+          }
+
           setIsLoading(true);
           setLoadingStatus('Sunoから高精度歌詞＆ジャケ写を自動抽出中...');
           
@@ -192,7 +197,7 @@ export default function Home() {
             boxSizing: 'border-box'
           }}>
             <p style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold', margin: 0, lineHeight: 1.5 }}>
-              💡 スマホで同じWi-Fi内の <a href="http://192.168.1.26:3000" style={{ textDecoration: 'underline', color: '#2563eb' }}>http://192.168.1.26:3000</a> を開いてお試しください（ボーカル分離AIサーバーと直接連携するため）。
+              💡 スマホで同じWi-Fi内の <a href="http://192.168.1.26:3000" style={{ textDecoration: 'underline', color: '#2563eb' }}>http://192.168.1.26:3000</a> を開いてお試しくいただくと、直接AIボーカル分離が実行されます。
             </p>
           </div>
         )}
