@@ -234,7 +234,7 @@ export default function Home() {
               id="bookmarklet-textarea"
               readOnly
               rows={3}
-              value={bookmarkletCode}
+              value={SUNO_BOOKMARKLET_SCRIPT}
               style={{
                 width: '100%',
                 backgroundColor: '#0f172a',
