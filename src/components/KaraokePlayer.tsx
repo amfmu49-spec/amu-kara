@@ -511,7 +511,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             >
               -
             </button>
-            <span style={{ fontSize: '13px', fontWeight: 'bold', color keyOffset === 0 ? '#ffffff' : '#f472b6', minWidth: '24px', textAlign: 'center' }}>
+            <span style={{ fontSize: '13px', fontWeight: 'bold', color: keyOffset === 0 ? '#ffffff' : '#f472b6', minWidth: '24px', textAlign: 'center' }}>
               {keyOffset > 0 ? `+${keyOffset}` : keyOffset}
             </span>
             <button
