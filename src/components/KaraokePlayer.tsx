@@ -71,6 +71,7 @@ function audioBufferToWavBlob(buffer: AudioBuffer): Blob {
 
 export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onReset }: KaraokePlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   
   const [originalBlobUrl, setOriginalBlobUrl] = useState<string>('');
   const [instBlobUrl, setInstBlobUrl] = useState<string>('');
@@ -85,6 +86,12 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const [keyOffset, setKeyOffset] = useState(0);
   const [isVocalCut, setIsVocalCut] = useState(true);
   const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
+
+  // Analyser Node Ref
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const animFrameIdRef = useRef<number | null>(null);
 
   // オフライン高音質プリレンダリング処理
   useEffect(() => {
@@ -237,6 +244,105 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     };
   }, [audioUrl]);
 
+  // リアルタイム・グラフィックイコライザー（オーディオビジュアライザー）描画
+  useEffect(() => {
+    if (isProcessing) return;
+
+    const setupVisualizer = () => {
+      try {
+        if (!audioCtxRef.current) {
+          const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          audioCtxRef.current = new AudioCtx();
+        }
+        const ctx = audioCtxRef.current;
+
+        if (!analyserRef.current) {
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 64; // 32バー
+          analyser.smoothingTimeConstant = 0.8;
+          analyserRef.current = analyser;
+        }
+
+        if (!sourceNodeRef.current && audioRef.current) {
+          const sourceNode = ctx.createMediaElementSource(audioRef.current);
+          sourceNode.connect(analyserRef.current);
+          analyserRef.current.connect(ctx.destination);
+          sourceNodeRef.current = sourceNode;
+        }
+      } catch (e) {
+        console.warn('Visualizer setup warning:', e);
+      }
+    };
+
+    setupVisualizer();
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const canvasCtx = canvas.getContext('2d');
+    if (!canvasCtx) return;
+
+    const bufferLength = analyserRef.current ? analyserRef.current.frequencyBinCount : 32;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      animFrameIdRef.current = requestAnimationFrame(draw);
+
+      if (analyserRef.current && isPlaying) {
+        analyserRef.current.getByteFrequencyData(dataArray);
+      } else {
+        dataArray.fill(0);
+      }
+
+      const width = canvas.width;
+      const height = canvas.height;
+
+      canvasCtx.clearRect(0, 0, width, height);
+
+      const barCount = 28;
+      const barWidth = (width / barCount) - 3;
+      let x = 0;
+
+      for (let i = 0; i < barCount; i++) {
+        // 音量値
+        const barHeightPercent = isPlaying ? (dataArray[i] / 255) : 0.05;
+        const barHeight = Math.max(4, barHeightPercent * height * 0.85);
+
+        // ネオングラデーション (ピンク -> パープル -> シアン)
+        const gradient = canvasCtx.createLinearGradient(0, height, 0, 0);
+        gradient.addColorStop(0, '#ec4899');
+        gradient.addColorStop(0.5, '#a855f7');
+        gradient.addColorStop(1, '#38bdf8');
+
+        canvasCtx.fillStyle = gradient;
+        canvasCtx.shadowColor = '#ec4899';
+        canvasCtx.shadowBlur = isPlaying ? 8 : 2;
+
+        // 角丸バー描画
+        const radius = Math.min(barWidth / 2, 4);
+        const y = height - barHeight;
+
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(x + radius, y);
+        canvasCtx.lineTo(x + barWidth - radius, y);
+        canvasCtx.quadraticCurveTo(x + barWidth, y, x + barWidth, y + radius);
+        canvasCtx.lineTo(x + barWidth, height);
+        canvasCtx.lineTo(x, height);
+        canvasCtx.lineTo(x, y + radius);
+        canvasCtx.quadraticCurveTo(x, y, x + radius, y);
+        canvasCtx.closePath();
+        canvasCtx.fill();
+
+        x += barWidth + 3;
+      }
+    };
+
+    draw();
+
+    return () => {
+      if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+    };
+  }, [isProcessing, isPlaying]);
+
   // ト書き除去
   const cleanLyrics = lyrics
     .map((line) => ({ ...line, text: line.text.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '').trim() }))
@@ -247,6 +353,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   const handleUserUnlockAndPlay = async () => {
     try {
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        await audioCtxRef.current.resume();
+      }
       setIsAudioUnlocked(true);
       if (audioRef.current) {
         await audioRef.current.play();
@@ -274,6 +383,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const togglePlay = async () => {
     if (!isAudioUnlocked) { await handleUserUnlockAndPlay(); return; }
     if (!audioRef.current) return;
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      await audioCtxRef.current.resume();
+    }
     if (isPlaying) { audioRef.current.pause(); setIsPlaying(false); }
     else { await audioRef.current.play(); setIsPlaying(true); }
   };
@@ -318,16 +430,22 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#cbd5e1', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ textAlign: 'center', maxWidth: '55%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#fff', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v4.0.0 (Pre-Render HQ Engine)</span>
+          <span style={{ fontSize: '9px', background: '#ec4899', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v4.1.0 (Graphic EQ & Pre-Render)</span>
         </div>
         <button type="button" onClick={() => setIsVocalCut(!isVocalCut)} style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: 'none', cursor: 'pointer', background: isVocalCut ? 'linear-gradient(90deg,#ec4899,#a855f7)' : '#475569', color: '#fff', boxShadow: isVocalCut ? '0 0 12px rgba(236,72,153,0.5)' : 'none' }}>
           {isVocalCut ? '🎤 高音質伴奏: ON' : '🎤 原曲: OFF'}
         </button>
       </header>
 
-      {/* Lyrics */}
+      {/* Lyrics & Visualizer Display */}
       <div style={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 20px', textAlign: 'center' }}>
-        {bgImageUrl && <img src={bgImageUrl} alt="" style={{ width: '110px', height: '110px', borderRadius: '20px', objectFit: 'cover', boxShadow: '0 10px 30px rgba(236,72,153,0.3)', marginBottom: '32px', border: '2px solid rgba(255,255,255,0.2)' }} />}
+        {bgImageUrl && <img src={bgImageUrl} alt="" style={{ width: '110px', height: '110px', borderRadius: '20px', objectFit: 'cover', boxShadow: '0 10px 30px rgba(236,72,153,0.3)', marginBottom: '24px', border: '2px solid rgba(255,255,255,0.2)' }} />}
+        
+        {/* Real-time Graphic Equalizer Display (Canvas) */}
+        <div style={{ width: '100%', maxWidth: '360px', height: '48px', marginBottom: '20px', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', background: 'rgba(15,23,42,0.4)', borderRadius: '12px', padding: '6px 12px', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)' }}>
+          <canvas ref={canvasRef} width={320} height={42} style={{ display: 'block' }} />
+        </div>
+
         <div style={{ width: '100%', maxWidth: '560px', backgroundColor: 'rgba(15,23,42,0.75)', border: '1px solid rgba(236,72,153,0.3)', borderRadius: '24px', padding: '28px 20px', backdropFilter: 'blur(16px)', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', boxSizing: 'border-box' }}>
           <div style={{ minHeight: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {currentLine ? (
@@ -343,6 +461,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             </div>
           )}
         </div>
+
         {!isProcessing && !isAudioUnlocked && (
           <button type="button" onClick={handleUserUnlockAndPlay} style={{ marginTop: '24px', padding: '16px 32px', background: 'linear-gradient(90deg,#ec4899,#a855f7)', color: '#fff', fontSize: '16px', fontWeight: 'bold', border: 'none', borderRadius: '30px', cursor: 'pointer', boxShadow: '0 8px 25px rgba(236,72,153,0.5)' }}>
             🎤 タップしてカラオケスタート！

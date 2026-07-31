@@ -6,7 +6,7 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
-export const APP_VERSION = 'v4.0.0 (Pre-Render HQ Engine)';
+export const APP_VERSION = 'v4.1.0 (Graphic EQ & Pre-Render)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
