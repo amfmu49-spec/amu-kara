@@ -26,6 +26,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const midSumRef = useRef<GainNode | null>(null);
   const midNotch1Ref = useRef<BiquadFilterNode | null>(null);
   const midNotch2Ref = useRef<BiquadFilterNode | null>(null);
+  const sideNotchRef = useRef<BiquadFilterNode | null>(null);
   const sideRRef = useRef<GainNode | null>(null);
   const sideLRef = useRef<GainNode | null>(null);
 
@@ -65,7 +66,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // -60dB 極限ボーカル無音化 ＆ 0.70 位相相殺 DSP
+  // Mid ＋ Side 二重残響ボーカル挟み撃ち消去 DSP (v2.6.0)
   const handleUserUnlockAndPlay = async () => {
     try {
       if (!audioCtxRef.current) {
@@ -84,17 +85,17 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         const splitter = ctx.createChannelSplitter(2);
         const merger = ctx.createChannelMerger(2);
 
-        // 1. Mid (センターボーカル) チャンネル - ゲインを 0.08 (-22dB) に直接アグレッシブ減衰
+        // 1. Mid (センターボーカル) チャンネル
         const midSum = ctx.createGain();
-        midSum.gain.value = 0.08;
+        midSum.gain.value = 0.05;
 
-        // 2. Side (左右 L - R 逆相相殺) 回路 (ゲイン極限 0.70)
+        // 2. Side (左右 L - R 逆相相殺) 回路
         const sideL = ctx.createGain();
         sideL.gain.value = 0.70;
         const sideR = ctx.createGain();
-        sideR.gain.value = -0.70; // 逆位相でボーカル完全打ち消し
+        sideR.gain.value = -0.70;
 
-        // 3. Mid ダブル・ディープノッチ (-60dB 極限無音化)
+        // 3. Mid ダブル・ディープノッチ (-60dB)
         const midNotch1 = ctx.createBiquadFilter();
         midNotch1.type = 'peaking';
         midNotch1.frequency.value = 1000;
@@ -107,7 +108,14 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         midNotch2.Q.value = 0.8;
         midNotch2.gain.value = -50;
 
-        // 4. 重低音ブースト (250Hz +4dB)
+        // 4. Side (左右の広がり成分) からも残響エコー・コーラス歌声をノッチカット (-32dB)
+        const sideNotch = ctx.createBiquadFilter();
+        sideNotch.type = 'peaking';
+        sideNotch.frequency.value = 1500;
+        sideNotch.Q.value = 0.5; // 広帯域
+        sideNotch.gain.value = -32;
+
+        // 5. 重低音ブースト (250Hz +4dB)
         const warmLow = ctx.createBiquadFilter();
         warmLow.type = 'peaking';
         warmLow.frequency.value = 250;
@@ -116,13 +124,14 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         midSumRef.current = midSum;
         midNotch1Ref.current = midNotch1;
         midNotch2Ref.current = midNotch2;
+        sideNotchRef.current = sideNotch;
         sideLRef.current = sideL;
         sideRRef.current = sideR;
 
         // --- 全ノード直列接続 ---
         sourceNodeRef.current.connect(splitter);
 
-        // Mid チャンネル (MidSum -> Notch1 -> Notch2 -> WarmLow -> Merger)
+        // Mid チャンネル
         splitter.connect(midSum, 0);
         splitter.connect(midSum, 1);
         midSum.connect(midNotch1);
@@ -131,11 +140,17 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         warmLow.connect(merger, 0, 0);
         warmLow.connect(merger, 0, 1);
 
-        // Side チャンネル (逆位相合成 L - R)
+        // Side チャンネル (SideNotch を通して左右のリバーブ歌声を撃破)
         splitter.connect(sideL, 0);
         splitter.connect(sideR, 1);
-        sideL.connect(merger, 0, 0); // Left
-        sideR.connect(merger, 0, 1); // Right (逆位相でボーカル完全消去)
+        sideL.connect(sideNotch);
+        sideR.connect(sideNotch);
+
+        sideNotch.connect(merger, 0, 0); // Left
+        const sideInvertR = ctx.createGain();
+        sideInvertR.gain.value = -1.0;
+        sideNotch.connect(sideInvertR);
+        sideInvertR.connect(merger, 0, 1); // Right (逆位相合成)
 
         merger.connect(ctx.destination);
       }
@@ -151,19 +166,21 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   };
 
   useEffect(() => {
-    if (sideLRef.current && sideRRef.current && midSumRef.current && midNotch1Ref.current && midNotch2Ref.current) {
+    if (sideLRef.current && sideRRef.current && midSumRef.current && midNotch1Ref.current && midNotch2Ref.current && sideNotchRef.current) {
       if (isVocalCut) {
-        midSumRef.current.gain.value = 0.08;
+        midSumRef.current.gain.value = 0.05;
         sideLRef.current.gain.value = 0.70;
         sideRRef.current.gain.value = -0.70;
         midNotch1Ref.current.gain.value = -60;
         midNotch2Ref.current.gain.value = -50;
+        sideNotchRef.current.gain.value = -32;
       } else {
         midSumRef.current.gain.value = 0.5;
         sideLRef.current.gain.value = 0.5;
         sideRRef.current.gain.value = 0.5;
         midNotch1Ref.current.gain.value = 0;
         midNotch2Ref.current.gain.value = 0;
+        sideNotchRef.current.gain.value = 0;
       }
     }
   }, [isVocalCut]);
@@ -301,7 +318,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             {title || 'AMU KARA'}
           </h1>
           <span style={{ fontSize: '9px', background: '#ec4899', color: '#ffffff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>
-            v2.5.0
+            v2.6.0
           </span>
         </div>
 
@@ -494,7 +511,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             >
               -
             </button>
-            <span style={{ fontSize: '13px', fontWeight: 'bold', color: keyOffset === 0 ? '#ffffff' : '#f472b6', minWidth: '24px', textAlign: 'center' }}>
+            <span style={{ fontSize: '13px', fontWeight: 'bold', color keyOffset === 0 ? '#ffffff' : '#f472b6', minWidth: '24px', textAlign: 'center' }}>
               {keyOffset > 0 ? `+${keyOffset}` : keyOffset}
             </span>
             <button
