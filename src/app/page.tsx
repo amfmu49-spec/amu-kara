@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import { parseSRT, LyricLine } from '@/lib/srtParser';
-import { getBookmarkletScript } from '@/lib/bookmarklet';
+import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
