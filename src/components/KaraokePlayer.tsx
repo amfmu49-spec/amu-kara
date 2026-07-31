@@ -16,9 +16,8 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [keyOffset, setKeyOffset] = useState(0); // キー変更 (-6 ～ +6 半音)
+  const [keyOffset, setKeyOffset] = useState(0);
 
-  // キー変更（ピッチ変更）適用
   useEffect(() => {
     if (audioRef.current) {
       const pitchRatio = Math.pow(2, keyOffset / 12);
@@ -54,7 +53,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     }
   };
 
-  // 現在アクティブな歌詞行の取得
   const activeLine = lyrics.find(
     (line) => currentTime >= line.startTime && currentTime <= line.endTime
   );
@@ -70,62 +68,86 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   };
 
   return (
-    <div className="relative w-full min-h-screen bg-slate-50 text-slate-900 flex flex-col justify-between overflow-hidden font-sans selection:bg-pink-500 selection:text-white">
-      {/* 背景カバー画像 (うっすらライトボカシ) */}
-      <div className="absolute inset-0 pointer-events-none">
+    <div style={{
+      position: 'relative',
+      width: '100%',
+      minHeight: '100vh',
+      backgroundColor: '#f8fafc',
+      color: '#0f172a',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      overflow: 'hidden',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    }}>
+      {/* 背景カバー画像 */}
+      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
         {bgImageUrl ? (
           <img
             src={bgImageUrl}
             alt="Song Cover"
-            className="w-full h-full object-cover filter blur-lg opacity-25 scale-110 transition-opacity duration-1000"
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              filter: 'blur(20px)',
+              opacity: 0.2,
+              transform: 'scale(1.1)'
+            }}
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-pink-50/50 via-slate-50 to-cyan-50/50" />
+          <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #fce7f3 0%, #f8fafc 50%, #e0f2fe 100%)' }} />
         )}
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/90 via-white/80 to-slate-50/95" />
       </div>
 
-      {/* AIカラーライン (上部アクセント) */}
-      <div className="relative z-20 h-1.5 bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-400 shadow-sm" />
+      {/* AIアクセントライン (上部) */}
+      <div style={{ position: 'relative', zIndex: 20, height: '6px', background: 'linear-gradient(90deg, #ec4899, #a855f7, #06b6d4)' }} />
 
-      {/* 白地ヘッダー */}
-      <header className="relative z-10 p-3 flex justify-between items-center bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
+      {/* ヘッダー */}
+      <header style={{
+        position: 'relative', zIndex: 10, padding: '12px 16px',
+        background: 'rgba(255, 255, 255, 0.9)', backdropFilter: 'blur(8px)',
+        borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+      }}>
         <button
           onClick={onReset}
-          className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 border border-slate-300 backdrop-blur-md active:scale-95 transition shadow-sm"
+          style={{
+            padding: '6px 14px', borderRadius: '12px', background: '#f1f5f9',
+            border: '1px solid #cbd5e1', color: '#334155', fontWeight: 'bold', fontSize: '12px', cursor: 'pointer'
+          }}
         >
           ← 戻る
         </button>
-        <div className="flex flex-col items-center">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <img
             src="logo_cropped.png"
             alt="AMU KARA Logo"
-            className="h-10 w-auto rounded-lg shadow-sm"
+            style={{ height: '36px', width: 'auto', borderRadius: '8px' }}
           />
           {title && (
-            <div className="flex items-center gap-1.5 mt-0.5 max-w-[220px]">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', maxWidth: '200px' }}>
               {bgImageUrl && (
                 <img
                   src={bgImageUrl}
                   alt="Cover"
-                  className="w-4 h-4 rounded-full object-cover border border-pink-400 shrink-0"
+                  style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #ec4899' }}
                 />
               )}
-              <p className="text-[10px] text-pink-600 font-bold truncate">{title}</p>
+              <p style={{ fontSize: '11px', color: '#db2777', fontWeight: 'bold', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</p>
             </div>
           )}
         </div>
-        <div className="w-16" /> {/* スペーサー */}
+        <div style={{ width: '60px' }} />
       </header>
 
-      {/* メイン歌詞表示エリア (白地に映えるネオンカラー文字) */}
-      <main className="relative z-10 flex-1 flex flex-col justify-center items-center px-6 text-center py-8">
+      {/* メイン歌詞表示エリア */}
+      <main style={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '24px 16px', textAlign: 'center' }}>
         {lyrics.length === 0 ? (
-          <div className="p-6 bg-white/80 border border-slate-200 rounded-3xl backdrop-blur-md shadow-sm">
-            <p className="text-slate-500 text-xs font-bold">歌詞データを取り込み中です...</p>
+          <div style={{ padding: '24px', background: 'rgba(255, 255, 255, 0.85)', border: '1px solid #e2e8f0', borderRadius: '24px' }}>
+            <p style={{ color: '#64748b', fontSize: '13px', fontWeight: 'bold', margin: 0 }}>歌詞データを取り込み中です...</p>
           </div>
         ) : (
-          <div className="space-y-6 max-w-xl w-full">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', maxWidth: '500px', width: '100%' }}>
             {displayLines.map((line) => {
               const isActive = activeLine?.id === line.id;
               
@@ -141,18 +163,25 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
               return (
                 <div
                   key={line.id}
-                  className={`transition-all duration-300 transform ${
-                    isActive ? 'scale-105 font-black opacity-100' : 'scale-95 opacity-30 blur-[0.2px]'
-                  }`}
+                  style={{
+                    transition: 'all 0.3s ease',
+                    transform: isActive ? 'scale(1.05)' : 'scale(0.95)',
+                    opacity: isActive ? 1 : 0.35,
+                    fontWeight: isActive ? '900' : 'normal'
+                  }}
                 >
-                  <div className="relative inline-block text-xl sm:text-2xl tracking-wider leading-relaxed text-center">
-                    {/* 背景文字 (未再生時: 薄いスレートグレー) */}
-                    <span className="text-slate-400 select-none">{line.text}</span>
+                  <div style={{ position: 'relative', display: 'inline-block', fontSize: '22px', letterSpacing: '0.05em', lineHeight: 1.6, textAlign: 'center' }}>
+                    <span style={{ color: '#94a3b8', userSelect: 'none' }}>{line.text}</span>
 
-                    {/* カラオケワイプ色付き文字 (再生時: 鮮やかなAIカラーグラデーション) */}
                     <span
-                      className="absolute inset-0 text-transparent bg-clip-text bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-500 overflow-hidden select-none pointer-events-none drop-shadow-[0_2px_8px_rgba(236,72,153,0.3)]"
                       style={{
+                        position: 'absolute', inset: 0,
+                        background: 'linear-gradient(90deg, #db2777, #9333ea, #0284c7)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        overflow: 'hidden',
+                        userSelect: 'none',
+                        pointerEvents: 'none',
                         clipPath: `inset(0 ${100 - wipeProgress * 100}% 0 0)`
                       }}
                     >
@@ -166,41 +195,52 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         )}
       </main>
 
-      {/* ボトムプレイヤー & キーコントロールエリア (白地 ＋ AIカラーライン) */}
-      <footer className="relative z-10 p-5 bg-white/95 backdrop-blur-xl border-t border-slate-200/90 space-y-4 shadow-xl">
-        {/* キー（ピッチ）調整コントローラー */}
-        <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl p-3 shadow-inner">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-700">🎹 キー変更:</span>
-            <span className={`text-xs font-black px-2.5 py-0.5 rounded-full shadow-sm ${keyOffset === 0 ? 'bg-slate-200 text-slate-700' : keyOffset > 0 ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white' : 'bg-gradient-to-r from-purple-600 to-cyan-500 text-white'}`}>
+      {/* プレイヤー ＆ キーコントローラー */}
+      <footer style={{
+        position: 'relative', zIndex: 10, padding: '20px',
+        background: 'rgba(255, 255, 255, 0.95)', backdropFilter: 'blur(16px)',
+        borderTop: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '16px',
+        boxShadow: '0 -10px 25px rgba(0,0,0,0.05)'
+      }}>
+        {/* キーコントロール */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '16px', padding: '10px 14px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#334155' }}>🎹 キー変更:</span>
+            <span style={{
+              fontSize: '12px', fontWeight: '900', padding: '2px 10px', borderRadius: '12px', color: '#ffffff',
+              background: keyOffset === 0 ? '#64748b' : keyOffset > 0 ? '#db2777' : '#0284c7'
+            }}>
               {keyOffset > 0 ? `+${keyOffset}` : keyOffset}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={() => setKeyOffset((prev) => Math.max(-6, prev - 1))}
-              className="w-8 h-8 rounded-xl bg-white active:bg-slate-100 border border-slate-300 text-xs font-bold text-cyan-600 flex items-center justify-center shadow-sm"
+              style={{ padding: '6px 10px', borderRadius: '10px', background: '#ffffff', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: 'bold', color: '#0284c7', cursor: 'pointer' }}
             >
               ♭ -1
             </button>
             <button
               onClick={() => setKeyOffset(0)}
-              className="px-3 h-8 rounded-xl bg-white active:bg-slate-100 border border-slate-300 text-[11px] font-bold text-slate-600 shadow-sm"
+              style={{ padding: '6px 12px', borderRadius: '10px', background: '#ffffff', border: '1px solid #cbd5e1', fontSize: '11px', fontWeight: 'bold', color: '#475569', cursor: 'pointer' }}
             >
               原曲キー
             </button>
             <button
               onClick={() => setKeyOffset((prev) => Math.min(6, prev + 1))}
-              className="w-8 h-8 rounded-xl bg-white active:bg-slate-100 border border-slate-300 text-xs font-bold text-pink-600 flex items-center justify-center shadow-sm"
+              style={{ padding: '6px 10px', borderRadius: '10px', background: '#ffffff', border: '1px solid #cbd5e1', fontSize: '12px', fontWeight: 'bold', color: '#db2777', cursor: 'pointer' }}
             >
               ♯ +1
             </button>
           </div>
         </div>
 
-        {/* シークバー & 時間表示 */}
-        <div className="space-y-1">
+        {/* シークバー */}
+        <div style={{ width: '100%' }}>
           <input
             type="range"
             min={0}
@@ -211,30 +251,34 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
               setCurrentTime(val);
               if (audioRef.current) audioRef.current.currentTime = val;
             }}
-            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-pink-500 shadow-inner"
+            style={{ width: '100%', accentColor: '#db2777' }}
           />
-          <div className="flex justify-between text-[10px] text-slate-500 font-mono font-bold">
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#64748b', fontFamily: 'monospace', marginTop: '2px' }}>
             <span>{formatTime(currentTime)}</span>
             <span>{formatTime(duration)}</span>
           </div>
         </div>
 
-        {/* スタイリッシュなAIグラデーション再生ボタン */}
-        <div className="flex justify-center pt-1">
+        {/* スタイリッシュ再生ボタン */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
           <button
             onClick={togglePlay}
-            className="group relative w-16 h-16 rounded-full bg-gradient-to-r from-pink-500 via-purple-600 to-cyan-400 p-0.5 shadow-xl shadow-pink-500/25 active:scale-95 transition transform hover:scale-105"
+            style={{
+              width: '60px', height: '60px', borderRadius: '50%',
+              background: 'linear-gradient(135deg, #ec4899, #a855f7, #06b6d4)',
+              padding: '2px', border: 'none', cursor: 'pointer',
+              boxShadow: '0 8px 20px rgba(236, 72, 153, 0.35)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center'
+            }}
           >
-            <div className="w-full h-full rounded-full bg-white flex items-center justify-center group-hover:bg-opacity-90 transition">
+            <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {isPlaying ? (
-                /* スタイリッシュ一時停止アイコン */
-                <svg className="w-6 h-6 text-pink-600 fill-current" viewBox="0 0 24 24">
+                <svg style={{ width: '22px', height: '22px', fill: '#db2777' }} viewBox="0 0 24 24">
                   <rect x="6" y="4" width="4" height="16" rx="1" />
                   <rect x="14" y="4" width="4" height="16" rx="1" />
                 </svg>
               ) : (
-                /* スタイリッシュ再生アイコン */
-                <svg className="w-6 h-6 text-pink-600 fill-current ml-1" viewBox="0 0 24 24">
+                <svg style={{ width: '22px', height: '22px', fill: '#db2777', marginLeft: '3px' }} viewBox="0 0 24 24">
                   <path d="M8 5v14l11-7z" />
                 </svg>
               )}
@@ -242,7 +286,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
           </button>
         </div>
 
-        {/* Audio Element */}
         <audio
           ref={audioRef}
           src={audioUrl}
@@ -253,7 +296,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
       </footer>
 
       {/* AIアクセントライン (下部) */}
-      <div className="relative z-20 h-1.5 bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 shadow-sm" />
+      <div style={{ position: 'relative', zIndex: 20, height: '6px', background: 'linear-gradient(90deg, #a855f7, #ec4899, #06b6d4)' }} />
     </div>
   );
 }
