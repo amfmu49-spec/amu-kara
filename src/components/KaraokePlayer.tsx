@@ -23,6 +23,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const midSumRef = useRef<GainNode | null>(null);
   const midNotch1Ref = useRef<BiquadFilterNode | null>(null);
   const midNotch2Ref = useRef<BiquadFilterNode | null>(null);
   const sideRRef = useRef<GainNode | null>(null);
@@ -64,7 +65,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // ボーカル 100% 完全消去・最終ディープノッチ ＆ 位相キャンセル DSP
+  // -60dB 極限ボーカル無音化 ＆ 0.70 位相相殺 DSP
   const handleUserUnlockAndPlay = async () => {
     try {
       if (!audioCtxRef.current) {
@@ -83,28 +84,28 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         const splitter = ctx.createChannelSplitter(2);
         const merger = ctx.createChannelMerger(2);
 
-        // 1. Mid (センター = L + R) 抽出
+        // 1. Mid (センターボーカル) チャンネル - ゲインを 0.08 (-22dB) に直接アグレッシブ減衰
         const midSum = ctx.createGain();
-        midSum.gain.value = 0.5;
+        midSum.gain.value = 0.08;
 
-        // 2. Side (左右 L - R 逆相相殺) 回路 (ゲイン強化 0.6)
+        // 2. Side (左右 L - R 逆相相殺) 回路 (ゲイン極限 0.70)
         const sideL = ctx.createGain();
-        sideL.gain.value = 0.6;
+        sideL.gain.value = 0.70;
         const sideR = ctx.createGain();
-        sideR.gain.value = -0.6; // 相殺用逆位相
+        sideR.gain.value = -0.70; // 逆位相でボーカル完全打ち消し
 
-        // 3. Mid ダブル・ディープノッチ (-48dB 完全消去)
+        // 3. Mid ダブル・ディープノッチ (-60dB 極限無音化)
         const midNotch1 = ctx.createBiquadFilter();
         midNotch1.type = 'peaking';
         midNotch1.frequency.value = 1000;
-        midNotch1.Q.value = 0.7;
-        midNotch1.gain.value = -48;
+        midNotch1.Q.value = 0.6;
+        midNotch1.gain.value = -60;
 
         const midNotch2 = ctx.createBiquadFilter();
         midNotch2.type = 'peaking';
         midNotch2.frequency.value = 2400;
-        midNotch2.Q.value = 1.0;
-        midNotch2.gain.value = -40;
+        midNotch2.Q.value = 0.8;
+        midNotch2.gain.value = -50;
 
         // 4. 重低音ブースト (250Hz +4dB)
         const warmLow = ctx.createBiquadFilter();
@@ -112,6 +113,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         warmLow.frequency.value = 250;
         warmLow.gain.value = 4.0;
 
+        midSumRef.current = midSum;
         midNotch1Ref.current = midNotch1;
         midNotch2Ref.current = midNotch2;
         sideLRef.current = sideL;
@@ -149,13 +151,15 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   };
 
   useEffect(() => {
-    if (sideLRef.current && sideRRef.current && midNotch1Ref.current && midNotch2Ref.current) {
+    if (sideLRef.current && sideRRef.current && midSumRef.current && midNotch1Ref.current && midNotch2Ref.current) {
       if (isVocalCut) {
-        sideLRef.current.gain.value = 0.6;
-        sideRRef.current.gain.value = -0.6;
-        midNotch1Ref.current.gain.value = -48;
-        midNotch2Ref.current.gain.value = -40;
+        midSumRef.current.gain.value = 0.08;
+        sideLRef.current.gain.value = 0.70;
+        sideRRef.current.gain.value = -0.70;
+        midNotch1Ref.current.gain.value = -60;
+        midNotch2Ref.current.gain.value = -50;
       } else {
+        midSumRef.current.gain.value = 0.5;
         sideLRef.current.gain.value = 0.5;
         sideRRef.current.gain.value = 0.5;
         midNotch1Ref.current.gain.value = 0;
@@ -297,7 +301,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             {title || 'AMU KARA'}
           </h1>
           <span style={{ fontSize: '9px', background: '#ec4899', color: '#ffffff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>
-            v2.4.0
+            v2.5.0
           </span>
         </div>
 
