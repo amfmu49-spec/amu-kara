@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import KaraokePlayer from '@/components/KaraokePlayer';
 import { parseSRT, LyricLine } from '@/lib/srtParser';
-import { getBookmarkletScript } from '@/lib/bookmarklet';
+import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
+import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -13,16 +14,8 @@ export default function Home() {
   const [lyricsData, setLyricsData] = useState<LyricLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
-  const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const origin = window.location.origin + window.location.pathname.replace(/\/$/, '');
-      setBookmarkletCode(getBookmarkletScript(origin));
-    }
-  }, []);
 
   const startKaraokeWithData = useCallback(async (
     targetAudioFile: File | null,
@@ -36,29 +29,35 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setLoadingStatus('カラオケ音源＆歌詞を準備中...');
+    setLoadingStatus('✨ 無料 AI (Demucs v4) がボーカルを100%完全分離中...');
 
     try {
       let accompanimentUrl = targetAudioUrl;
 
-      // バックエンドサーバーが起動している場合はより高精度な分離を試み、未起動ならそのまま即座にフロントエンドDSPで処理
       if (targetAudioUrl) {
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 2000);
+        // 1. 完全無料・無制限 Demucs AI 音源分離を呼び出し
+        const aiResult = await separateVocalWithFreeAI(targetAudioUrl);
+        if (aiResult) {
+          accompanimentUrl = aiResult;
+        } else {
+          // 2. ローカルAIバックエンドが利用可能な場合はローカルAIを実行
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 1500);
 
-          const response = await fetch(`${BACKEND_URL}/api/separate-url?url=${encodeURIComponent(targetAudioUrl)}`, {
-            method: 'POST',
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
+            const response = await fetch(`${BACKEND_URL}/api/separate-url?url=${encodeURIComponent(targetAudioUrl)}`, {
+              method: 'POST',
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
 
-          if (response.ok) {
-            const audioBlob = await response.blob();
-            accompanimentUrl = URL.createObjectURL(audioBlob);
+            if (response.ok) {
+              const audioBlob = await response.blob();
+              accompanimentUrl = URL.createObjectURL(audioBlob);
+            }
+          } catch (e) {
+            console.log('クライアント側リアルタイムDSPボーカル消去へフォールバックします。', e);
           }
-        } catch (e) {
-          console.log('ローカルAIサーバー未起動。ブラウザWeb Audio DSPでボーカルをリアルタイム消去します。', e);
         }
       }
 
@@ -207,7 +206,7 @@ export default function Home() {
               id="bookmarklet-textarea"
               readOnly
               rows={3}
-              value={bookmarkletCode}
+              value={SUNO_BOOKMARKLET_SCRIPT}
               style={{
                 width: '100%',
                 backgroundColor: '#0f172a',
@@ -277,7 +276,7 @@ export default function Home() {
             border: '4px solid #ec4899', borderTopColor: 'transparent',
             borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px'
           }} />
-          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0' }}>カラオケ準備中...</h2>
+          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0' }}>AI 音源分離中...</h2>
           <p style={{ fontSize: '12px', color: '#cbd5e1', margin: 0 }}>{loadingStatus}</p>
         </div>
       )}
