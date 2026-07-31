@@ -69,51 +69,45 @@ export default function Home() {
       try {
         const hash = window.location.hash;
         let songId = '';
+        let srtTextFromUrl = '';
 
-        if (hash.startsWith('#song=')) {
-          songId = hash.replace('#song=', '').split('&')[0];
-        } else if (hash.startsWith('#data=')) {
-          try {
-            const base64Str = decodeURIComponent(hash.replace('#data=', ''));
-            const jsonStr = decodeURIComponent(escape(atob(base64Str)));
-            const data = JSON.parse(jsonStr);
-            if (data && data.audioUrl) {
-              const parsed = data.srt ? parseSRT(data.srt) : [];
-              window.history.replaceState(null, '', window.location.pathname);
-              await startKaraokeWithData(null, data.audioUrl, data.imageUrl || null, parsed);
-              return;
-            }
-          } catch(e) { console.warn(e); }
+        if (hash.includes('song=')) {
+          const params = new URLSearchParams(hash.replace('#', ''));
+          songId = params.get('song') || '';
+          srtTextFromUrl = params.get('lrc') || '';
+        } else if (hash.startsWith('#lrc=')) {
+          srtTextFromUrl = decodeURIComponent(hash.replace('#lrc=', ''));
         }
 
         if (songId) {
           setIsLoading(true);
-          setLoadingStatus('Sunoから高精度歌詞＆カバーアートを取得中...');
+          setLoadingStatus('Sunoから高画質カバーアート＆音源を準備中...');
           
           window.history.replaceState(null, '', window.location.pathname);
 
+          let parsedLyrics: LyricLine[] = [];
+          if (srtTextFromUrl) {
+            parsedLyrics = parseSRT(srtTextFromUrl);
+          }
+
+          const audio = `https://cdn1.suno.ai/${songId}.mp3`;
+          const image = `https://cdn1.suno.ai/image_${songId}.png`;
+
+          // API から追加情報を試行
           try {
             const res = await fetch(`${BACKEND_URL}/api/suno-info?song_id=${songId}`);
             if (res.ok) {
               const info = await res.json();
-              const audio = info.audio_url || `https://cdn1.suno.ai/${songId}.mp3`;
-              const image = info.image_url || `https://cdn1.suno.ai/image_${songId}.png`;
-              const title = info.title || 'Suno Track';
-              const parsedLyrics = info.srt_text ? parseSRT(info.srt_text) : [];
-
-              setSongTitle(title);
-              await startKaraokeWithData(null, audio, image, parsedLyrics);
-            } else {
-              const audio = `https://cdn1.suno.ai/${songId}.mp3`;
-              const image = `https://cdn1.suno.ai/image_${songId}.png`;
-              await startKaraokeWithData(null, audio, image, []);
+              if (info.title) setSongTitle(info.title);
+              if (!parsedLyrics.length && info.srt_text) {
+                parsedLyrics = parseSRT(info.srt_text);
+              }
             }
           } catch (e) {
-            console.warn('Fetch info error fallback', e);
-            const audio = `https://cdn1.suno.ai/${songId}.mp3`;
-            const image = `https://cdn1.suno.ai/image_${songId}.png`;
-            await startKaraokeWithData(null, audio, image, []);
+            console.warn('Info fetch error fallback', e);
           }
+
+          await startKaraokeWithData(null, audio, image, parsedLyrics);
         }
       } catch (err) {
         console.error('URLデータ連携エラー:', err);
