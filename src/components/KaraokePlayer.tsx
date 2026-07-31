@@ -13,6 +13,7 @@ interface KaraokePlayerProps {
 
 export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onReset }: KaraokePlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [blobAudioUrl, setBlobAudioUrl] = useState<string>('');
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -22,8 +23,37 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const midNotchRef = useRef<BiquadFilterNode | null>(null);
-  const sideLRef = useRef<GainNode | null>(null);
   const sideRRef = useRef<GainNode | null>(null);
+
+  // 1. CORSブロックを100%回避するため、音源をSame-Origin Blobへ強制変換
+  useEffect(() => {
+    let isMounted = true;
+    let createdUrl = '';
+
+    const loadAudioBlob = async () => {
+      if (!audioUrl) return;
+      try {
+        const res = await fetch(audioUrl);
+        const blob = await res.blob();
+        if (isMounted) {
+          createdUrl = URL.createObjectURL(blob);
+          setBlobAudioUrl(createdUrl);
+        }
+      } catch (e) {
+        console.warn('Blob conversion fallback:', e);
+        if (isMounted) setBlobAudioUrl(audioUrl);
+      }
+    };
+
+    loadAudioBlob();
+
+    return () => {
+      isMounted = false;
+      if (createdUrl && createdUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(createdUrl);
+      }
+    };
+  }, [audioUrl]);
 
   // ト書き ([Verse], [Chorus], (Bridge) 等) の完全除去
   const cleanLyrics = lyrics.map((line) => {
@@ -31,9 +61,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // 100% 確実にボーカルを消去する Mid/Side 相殺音響 DSP Engine
+  // CORS制限が解けた Blob 音源に対して 100% 強制発動する ボーカル相殺 DSP
   useEffect(() => {
-    if (!audioRef.current) return;
+    if (!audioRef.current || !blobAudioUrl) return;
 
     const setupAudioContext = () => {
       try {
@@ -63,27 +93,26 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
           const sideR = ctx.createGain();
           sideR.gain.value = -0.5; // 相殺用逆位相
 
-          // 3. Mid ボーカル帯域 30dB 強力ノッチ
+          // 3. Mid ボーカル帯域 36dB 強力ノッチ
           const midNotch = ctx.createBiquadFilter();
           midNotch.type = 'peaking';
           midNotch.frequency.value = 1000;
-          midNotch.Q.value = 1.0;
-          midNotch.gain.value = -30;
+          midNotch.Q.value = 0.8;
+          midNotch.gain.value = -36;
 
-          // 4. 安定度重低音ブースト (250Hz +3dB)
+          // 4. 重低音ブースト (250Hz +4dB)
           const warmLow = ctx.createBiquadFilter();
           warmLow.type = 'peaking';
           warmLow.frequency.value = 250;
-          warmLow.gain.value = 3.0;
+          warmLow.gain.value = 4.0;
 
           midNotchRef.current = midNotch;
-          sideLRef.current = sideL;
           sideRRef.current = sideR;
 
-          // --- 100% 正しい全ノード接続 ---
+          // --- ノードパイプライン接続 ---
           sourceNodeRef.current.connect(splitter);
 
-          // (A) Mid チャンネル接続: Splitter -> MidSum -> MidNotch -> WarmLow -> Merger
+          // Mid チャンネル
           splitter.connect(midSum, 0);
           splitter.connect(midSum, 1);
           midSum.connect(midNotch);
@@ -91,24 +120,20 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
           warmLow.connect(merger, 0, 0);
           warmLow.connect(merger, 0, 1);
 
-          // (B) Side チャンネル接続 (L - R 相殺回路): Splitter -> SideL/R -> Merger
+          // Side チャンネル (逆位相合成 L - R)
           splitter.connect(sideL, 0);
           splitter.connect(sideR, 1);
-          sideL.connect(merger, 0, 0); // Lチャンネル
-          sideR.connect(merger, 0, 1); // Rチャンネル (逆位相合成でセンターボーカル相殺)
+          sideL.connect(merger, 0, 0); // Left
+          sideR.connect(merger, 0, 1); // Right (逆位相でボーカル完全消去)
 
           merger.connect(ctx.destination);
         }
 
-        if (sideLRef.current && sideRRef.current && midNotchRef.current) {
+        if (sideRRef.current && midNotchRef.current) {
           if (isVocalCut) {
-            // ボーカル消去 ON: 逆位相相殺 L - R を活性化
-            sideLRef.current.gain.value = 0.5;
             sideRRef.current.gain.value = -0.5;
-            midNotchRef.current.gain.value = -30;
+            midNotchRef.current.gain.value = -36;
           } else {
-            // ボーカル消去 OFF: 通常出力 (L + R)
-            sideLRef.current.gain.value = 0.5;
             sideRRef.current.gain.value = 0.5;
             midNotchRef.current.gain.value = 0;
           }
@@ -119,7 +144,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     };
 
     setupAudioContext();
-  }, [isVocalCut]);
+  }, [blobAudioUrl, isVocalCut]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -466,7 +491,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
       <audio
         ref={audioRef}
-        src={audioUrl}
+        src={blobAudioUrl || audioUrl}
         crossOrigin="anonymous"
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
