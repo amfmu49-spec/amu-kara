@@ -14,7 +14,6 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
   const [bookmarkletCode, setBookmarkletCode] = useState<string>('');
-  const [isHttps, setIsHttps] = useState(false);
 
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
 
@@ -22,9 +21,6 @@ export default function Home() {
     if (typeof window !== 'undefined') {
       const origin = window.location.origin + window.location.pathname.replace(/\/$/, '');
       setBookmarkletCode(getBookmarkletScript(origin));
-      if (window.location.protocol === 'https:') {
-        setIsHttps(true);
-      }
     }
   }, []);
 
@@ -40,26 +36,29 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setLoadingStatus('ボーカル抽出 AI 処理を実行中...');
+    setLoadingStatus('カラオケ音源＆歌詞を準備中...');
 
     try {
-      let accompanimentUrl = '';
+      let accompanimentUrl = targetAudioUrl;
 
+      // バックエンドサーバーが起動している場合はより高精度な分離を試み、未起動ならそのまま即座にフロントエンドDSPで処理
       if (targetAudioUrl) {
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
+
           const response = await fetch(`${BACKEND_URL}/api/separate-url?url=${encodeURIComponent(targetAudioUrl)}`, {
             method: 'POST',
+            signal: controller.signal
           });
+          clearTimeout(timeoutId);
 
           if (response.ok) {
             const audioBlob = await response.blob();
             accompanimentUrl = URL.createObjectURL(audioBlob);
-          } else {
-            accompanimentUrl = targetAudioUrl;
           }
         } catch (e) {
-          console.warn('分離エラー。元音源でフォールバック再生します。', e);
-          accompanimentUrl = targetAudioUrl;
+          console.log('ローカルAIサーバー未起動。ブラウザWeb Audio DSPでボーカルをリアルタイム消去します。', e);
         }
       }
 
@@ -173,28 +172,6 @@ export default function Home() {
           </p>
         </header>
 
-        {/* HTTPS混在コンテンツ警告バナー */}
-        {isHttps && (
-          <div style={{
-            width: '100%',
-            backgroundColor: '#fdf2f8',
-            border: '2px solid #f472b6',
-            borderRadius: '16px',
-            padding: '14px',
-            marginBottom: '16px',
-            boxSizing: 'border-box',
-            textAlign: 'left'
-          }}>
-            <p style={{ fontSize: '12px', color: '#be185d', fontWeight: 'bold', margin: '0 0 4px 0', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span>⚠️</span>
-              <span>ボーカル消去をご利用の皆様へ</span>
-            </p>
-            <p style={{ fontSize: '11px', color: '#9d174d', margin: 0, lineHeight: 1.5 }}>
-              現在 GitHub Pages (HTTPS) でご覧いただいています。ブラウザのセキュリティ制限（Mixed Content）を回避して**AIボーカル消去を100%機能させるため**、スマホで同じWi-Fi内の <a href="http://192.168.1.26:3000" style={{ fontWeight: 'bold', color: '#db2777', textDecoration: 'underline' }}>http://192.168.1.26:3000</a> を開いてお試しください！
-            </p>
-          </div>
-        )}
-
         {/* メイン白基調カード */}
         <div style={{
           width: '100%',
@@ -300,7 +277,7 @@ export default function Home() {
             border: '4px solid #ec4899', borderTopColor: 'transparent',
             borderRadius: '50%', animation: 'spin 1s linear infinite', marginBottom: '16px'
           }} />
-          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0' }}>音声分離 AI 処理中...</h2>
+          <h2 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0' }}>カラオケ準備中...</h2>
           <p style={{ fontSize: '12px', color: '#cbd5e1', margin: 0 }}>{loadingStatus}</p>
         </div>
       )}

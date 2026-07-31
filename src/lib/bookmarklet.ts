@@ -1,8 +1,8 @@
 /**
- * [Verse] / [Chorus] / (Bridge) 等のト書き完全除去 ＆ 動的アドレス対応ブックマークレット
+ * スマホ単体完結・動的ドメイン対応 100%全自動ブックマークレット
  */
 export const getBookmarkletScript = (targetOrigin?: string) => {
-  const target = targetOrigin || 'http://192.168.1.26:3000';
+  const target = targetOrigin || 'https://amfmu49-spec.github.io/amu-kara';
   return `javascript:(function(){
   try {
     var path = window.location.pathname;
@@ -67,7 +67,6 @@ export const getBookmarkletScript = (targetOrigin?: string) => {
               var item = aligned[i];
               var rawTxt = (item.text || item.word || '').trim();
               
-              // [Verse], [Chorus], (Bridge) などの全ト書き・括弧タグを100%削除
               var txt = rawTxt.replace(/\\\[.*?\\\]/g, '').replace(/\\(.*?\\)/g, '').trim();
               if (txt.indexOf('[') === 0 || txt.indexOf('(') === 0) continue;
 
@@ -110,4 +109,4 @@ export const getBookmarkletScript = (targetOrigin?: string) => {
 })();`;
 };
 
-export const SUNO_BOOKMARKLET_SCRIPT = getBookmarkletScript('http://192.168.1.26:3000');
+export const SUNO_BOOKMARKLET_SCRIPT = getBookmarkletScript('https://amfmu49-spec.github.io/amu-kara');
