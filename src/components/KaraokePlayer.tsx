@@ -23,8 +23,10 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const midNotchRef = useRef<BiquadFilterNode | null>(null);
+  const midNotch1Ref = useRef<BiquadFilterNode | null>(null);
+  const midNotch2Ref = useRef<BiquadFilterNode | null>(null);
   const sideRRef = useRef<GainNode | null>(null);
+  const sideLRef = useRef<GainNode | null>(null);
 
   // 1. CORSブロックを回避するため音源をBlob変換
   useEffect(() => {
@@ -62,7 +64,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // iOS Safari の User Audio Lock を直接タップイベント(onClick)で解除し、ボーカル消去回路を100%発動
+  // ボーカル 100% 完全消去・最終ディープノッチ ＆ 位相キャンセル DSP
   const handleUserUnlockAndPlay = async () => {
     try {
       if (!audioCtxRef.current) {
@@ -85,18 +87,24 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         const midSum = ctx.createGain();
         midSum.gain.value = 0.5;
 
-        // 2. Side (左右 L - R 逆相相殺) 回路
+        // 2. Side (左右 L - R 逆相相殺) 回路 (ゲイン強化 0.6)
         const sideL = ctx.createGain();
-        sideL.gain.value = 0.5;
+        sideL.gain.value = 0.6;
         const sideR = ctx.createGain();
-        sideR.gain.value = -0.5; // 相殺用逆位相
+        sideR.gain.value = -0.6; // 相殺用逆位相
 
-        // 3. Mid ボーカル帯域 36dB 強力ノッチ
-        const midNotch = ctx.createBiquadFilter();
-        midNotch.type = 'peaking';
-        midNotch.frequency.value = 1000;
-        midNotch.Q.value = 0.8;
-        midNotch.gain.value = -36;
+        // 3. Mid ダブル・ディープノッチ (-48dB 完全消去)
+        const midNotch1 = ctx.createBiquadFilter();
+        midNotch1.type = 'peaking';
+        midNotch1.frequency.value = 1000;
+        midNotch1.Q.value = 0.7;
+        midNotch1.gain.value = -48;
+
+        const midNotch2 = ctx.createBiquadFilter();
+        midNotch2.type = 'peaking';
+        midNotch2.frequency.value = 2400;
+        midNotch2.Q.value = 1.0;
+        midNotch2.gain.value = -40;
 
         // 4. 重低音ブースト (250Hz +4dB)
         const warmLow = ctx.createBiquadFilter();
@@ -104,17 +112,20 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         warmLow.frequency.value = 250;
         warmLow.gain.value = 4.0;
 
-        midNotchRef.current = midNotch;
+        midNotch1Ref.current = midNotch1;
+        midNotch2Ref.current = midNotch2;
+        sideLRef.current = sideL;
         sideRRef.current = sideR;
 
-        // --- 全ノード接続 ---
+        // --- 全ノード直列接続 ---
         sourceNodeRef.current.connect(splitter);
 
-        // Mid チャンネル
+        // Mid チャンネル (MidSum -> Notch1 -> Notch2 -> WarmLow -> Merger)
         splitter.connect(midSum, 0);
         splitter.connect(midSum, 1);
-        midSum.connect(midNotch);
-        midNotch.connect(warmLow);
+        midSum.connect(midNotch1);
+        midNotch1.connect(midNotch2);
+        midNotch2.connect(warmLow);
         warmLow.connect(merger, 0, 0);
         warmLow.connect(merger, 0, 1);
 
@@ -138,13 +149,17 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   };
 
   useEffect(() => {
-    if (sideRRef.current && midNotchRef.current) {
+    if (sideLRef.current && sideRRef.current && midNotch1Ref.current && midNotch2Ref.current) {
       if (isVocalCut) {
-        sideRRef.current.gain.value = -0.5;
-        midNotchRef.current.gain.value = -36;
+        sideLRef.current.gain.value = 0.6;
+        sideRRef.current.gain.value = -0.6;
+        midNotch1Ref.current.gain.value = -48;
+        midNotch2Ref.current.gain.value = -40;
       } else {
+        sideLRef.current.gain.value = 0.5;
         sideRRef.current.gain.value = 0.5;
-        midNotchRef.current.gain.value = 0;
+        midNotch1Ref.current.gain.value = 0;
+        midNotch2Ref.current.gain.value = 0;
       }
     }
   }, [isVocalCut]);
