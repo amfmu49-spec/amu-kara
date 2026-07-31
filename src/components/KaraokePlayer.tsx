@@ -19,13 +19,14 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const [isPlaying, setIsPlaying] = useState(false);
   const [keyOffset, setKeyOffset] = useState(0);
   const [isVocalCut, setIsVocalCut] = useState(true);
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const midNotchRef = useRef<BiquadFilterNode | null>(null);
   const sideRRef = useRef<GainNode | null>(null);
 
-  // 1. CORSブロックを100%回避するため、音源をSame-Origin Blobへ強制変換
+  // 1. CORSブロックを回避するため音源をBlob変換
   useEffect(() => {
     let isMounted = true;
     let createdUrl = '';
@@ -61,90 +62,92 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     return { ...line, text: cleanText };
   }).filter((line) => line.text.length > 0);
 
-  // CORS制限が解けた Blob 音源に対して 100% 強制発動する ボーカル相殺 DSP
-  useEffect(() => {
-    if (!audioRef.current || !blobAudioUrl) return;
-
-    const setupAudioContext = () => {
-      try {
-        if (!audioCtxRef.current) {
-          const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-          audioCtxRef.current = new AudioCtx();
-        }
-
-        const ctx = audioCtxRef.current;
-        if (ctx.state === 'suspended') {
-          ctx.resume();
-        }
-
-        if (!sourceNodeRef.current && audioRef.current) {
-          sourceNodeRef.current = ctx.createMediaElementSource(audioRef.current);
-          
-          const splitter = ctx.createChannelSplitter(2);
-          const merger = ctx.createChannelMerger(2);
-
-          // 1. Mid (センター = L + R) 抽出
-          const midSum = ctx.createGain();
-          midSum.gain.value = 0.5;
-
-          // 2. Side (左右 L - R 逆相相殺) 回路
-          const sideL = ctx.createGain();
-          sideL.gain.value = 0.5;
-          const sideR = ctx.createGain();
-          sideR.gain.value = -0.5; // 相殺用逆位相
-
-          // 3. Mid ボーカル帯域 36dB 強力ノッチ
-          const midNotch = ctx.createBiquadFilter();
-          midNotch.type = 'peaking';
-          midNotch.frequency.value = 1000;
-          midNotch.Q.value = 0.8;
-          midNotch.gain.value = -36;
-
-          // 4. 重低音ブースト (250Hz +4dB)
-          const warmLow = ctx.createBiquadFilter();
-          warmLow.type = 'peaking';
-          warmLow.frequency.value = 250;
-          warmLow.gain.value = 4.0;
-
-          midNotchRef.current = midNotch;
-          sideRRef.current = sideR;
-
-          // --- ノードパイプライン接続 ---
-          sourceNodeRef.current.connect(splitter);
-
-          // Mid チャンネル
-          splitter.connect(midSum, 0);
-          splitter.connect(midSum, 1);
-          midSum.connect(midNotch);
-          midNotch.connect(warmLow);
-          warmLow.connect(merger, 0, 0);
-          warmLow.connect(merger, 0, 1);
-
-          // Side チャンネル (逆位相合成 L - R)
-          splitter.connect(sideL, 0);
-          splitter.connect(sideR, 1);
-          sideL.connect(merger, 0, 0); // Left
-          sideR.connect(merger, 0, 1); // Right (逆位相でボーカル完全消去)
-
-          merger.connect(ctx.destination);
-        }
-
-        if (sideRRef.current && midNotchRef.current) {
-          if (isVocalCut) {
-            sideRRef.current.gain.value = -0.5;
-            midNotchRef.current.gain.value = -36;
-          } else {
-            sideRRef.current.gain.value = 0.5;
-            midNotchRef.current.gain.value = 0;
-          }
-        }
-      } catch (e) {
-        console.warn('Web Audio API setup fallback:', e);
+  // iOS Safari の User Audio Lock を直接タップイベント(onClick)で解除し、ボーカル消去回路を100%発動
+  const handleUserUnlockAndPlay = async () => {
+    try {
+      if (!audioCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        audioCtxRef.current = new AudioCtx();
       }
-    };
 
-    setupAudioContext();
-  }, [blobAudioUrl, isVocalCut]);
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      if (!sourceNodeRef.current && audioRef.current) {
+        sourceNodeRef.current = ctx.createMediaElementSource(audioRef.current);
+        
+        const splitter = ctx.createChannelSplitter(2);
+        const merger = ctx.createChannelMerger(2);
+
+        // 1. Mid (センター = L + R) 抽出
+        const midSum = ctx.createGain();
+        midSum.gain.value = 0.5;
+
+        // 2. Side (左右 L - R 逆相相殺) 回路
+        const sideL = ctx.createGain();
+        sideL.gain.value = 0.5;
+        const sideR = ctx.createGain();
+        sideR.gain.value = -0.5; // 相殺用逆位相
+
+        // 3. Mid ボーカル帯域 36dB 強力ノッチ
+        const midNotch = ctx.createBiquadFilter();
+        midNotch.type = 'peaking';
+        midNotch.frequency.value = 1000;
+        midNotch.Q.value = 0.8;
+        midNotch.gain.value = -36;
+
+        // 4. 重低音ブースト (250Hz +4dB)
+        const warmLow = ctx.createBiquadFilter();
+        warmLow.type = 'peaking';
+        warmLow.frequency.value = 250;
+        warmLow.gain.value = 4.0;
+
+        midNotchRef.current = midNotch;
+        sideRRef.current = sideR;
+
+        // --- 全ノード接続 ---
+        sourceNodeRef.current.connect(splitter);
+
+        // Mid チャンネル
+        splitter.connect(midSum, 0);
+        splitter.connect(midSum, 1);
+        midSum.connect(midNotch);
+        midNotch.connect(warmLow);
+        warmLow.connect(merger, 0, 0);
+        warmLow.connect(merger, 0, 1);
+
+        // Side チャンネル (逆位相合成 L - R)
+        splitter.connect(sideL, 0);
+        splitter.connect(sideR, 1);
+        sideL.connect(merger, 0, 0); // Left
+        sideR.connect(merger, 0, 1); // Right (逆位相でボーカル完全消去)
+
+        merger.connect(ctx.destination);
+      }
+
+      setIsAudioUnlocked(true);
+      if (audioRef.current) {
+        await audioRef.current.play();
+        setIsPlaying(true);
+      }
+    } catch (e) {
+      console.warn('Audio unlock error:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (sideRRef.current && midNotchRef.current) {
+      if (isVocalCut) {
+        sideRRef.current.gain.value = -0.5;
+        midNotchRef.current.gain.value = -36;
+      } else {
+        sideRRef.current.gain.value = 0.5;
+        midNotchRef.current.gain.value = 0;
+      }
+    }
+  }, [isVocalCut]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -170,16 +173,20 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     }
   };
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
+    if (!isAudioUnlocked) {
+      await handleUserUnlockAndPlay();
+      return;
+    }
     if (!audioRef.current) return;
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
+      await audioCtxRef.current.resume();
     }
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play();
+      await audioRef.current.play();
       setIsPlaying(true);
     }
   };
@@ -391,6 +398,29 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
             </div>
           )}
         </div>
+
+        {/* 初回 iOS Audio Lock 解除スタート巨大ボタン */}
+        {!isAudioUnlocked && (
+          <button
+            type="button"
+            onClick={handleUserUnlockAndPlay}
+            style={{
+              marginTop: '24px',
+              padding: '16px 32px',
+              background: 'linear-gradient(90deg, #ec4899, #a855f7)',
+              color: '#ffffff',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              border: 'none',
+              borderRadius: '30px',
+              cursor: 'pointer',
+              boxShadow: '0 8px 25px rgba(236, 72, 153, 0.5)',
+              animation: 'pulse 1.5s infinite'
+            }}
+          >
+            🎤 タップしてボーカル消去スタート！
+          </button>
+        )}
       </div>
 
       {/* プレイヤーコントロールエリア */}
@@ -496,7 +526,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
         onEnded={() => setIsPlaying(false)}
-        autoPlay
       />
     </div>
   );
