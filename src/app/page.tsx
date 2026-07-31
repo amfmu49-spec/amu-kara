@@ -6,7 +6,7 @@ import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 
-export const APP_VERSION = 'v4.2.0 (3-Band EQ & AB Compare)';
+export const APP_VERSION = 'v4.3.0 (5-Band EQ & AB Compare)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
