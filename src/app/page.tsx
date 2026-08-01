@@ -5,8 +5,9 @@ import KaraokePlayer from '@/components/KaraokePlayer';
 import { parseSRT, LyricLine } from '@/lib/srtParser';
 import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
+import { getSongHistory, saveSongHistory, removeSongHistory, SongHistoryItem } from '@/lib/songHistory';
 
-export const APP_VERSION = 'v6.0.0 (Cache & Auto EQ)';
+export const APP_VERSION = 'v7.0.0 (My Song History List)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -17,18 +18,30 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('');
 
+  // 歌った曲の履歴リスト
+  const [songHistory, setSongHistory] = useState<SongHistoryItem[]>([]);
+
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://192.168.1.26:8000';
+
+  // 履歴のロード
+  useEffect(() => {
+    setSongHistory(getSongHistory());
+  }, []);
 
   const startKaraokeWithData = useCallback(async (
     targetAudioFile: File | null,
     targetAudioUrl: string,
     targetBgUrl: string | null,
-    targetLyrics: LyricLine[]
+    targetLyrics: LyricLine[],
+    targetTitle?: string
   ) => {
     if (!targetAudioFile && !targetAudioUrl) {
       alert('Sunoの楽曲URLを入力するか、ブックマークレットから実行してください。');
       return;
     }
+
+    const currentTitle = targetTitle || songTitle || 'Suno AI Track';
+    if (targetTitle) setSongTitle(targetTitle);
 
     setIsLoading(true);
     setLoadingStatus('🤖 AMU KARA AI が高音質ボーカル分離中... (数秒お待ちください)');
@@ -37,13 +50,11 @@ export default function Home() {
       let accompanimentUrl = targetAudioUrl;
 
       if (targetAudioUrl) {
-        // 1. 本物の Deep Learning AI (Demucs v4) による音源分離を実行
         const aiResult = await separateVocalWithFreeAI(targetAudioUrl);
         if (aiResult) {
           accompanimentUrl = aiResult;
           setLoadingStatus('✅ AI分離完了！カラオケを起動します...');
         } else {
-          // 2. ローカル Python FastAPI (Demucs/UVR5) へのリレー接続
           try {
             setLoadingStatus('⚙️ ローカル AI エンジンで音源分離中...');
             const response = await fetch(`${BACKEND_URL}/api/separate-url?url=${encodeURIComponent(targetAudioUrl)}`, {
@@ -65,16 +76,44 @@ export default function Home() {
       if (targetBgUrl) setBgImageUrl(targetBgUrl);
       if (targetLyrics.length > 0) setLyricsData(targetLyrics);
 
+      // 履歴リストに保存
+      const updatedHistory = saveSongHistory({
+        id: targetAudioUrl || accompanimentUrl,
+        title: currentTitle,
+        bgImageUrl: targetBgUrl,
+        audioUrl: targetAudioUrl || accompanimentUrl,
+        lyrics: targetLyrics,
+      });
+      setSongHistory(updatedHistory);
+
       setTimeout(() => {
         setIsLoading(false);
         setIsPlayingMode(true);
-      }, 800);
+      }, 600);
     } catch (err) {
       console.error(err);
       alert('処理中にエラーが発生しました。');
       setIsLoading(false);
     }
-  }, [BACKEND_URL]);
+  }, [BACKEND_URL, songTitle]);
+
+  // 履歴曲のワンタップ即時呼び出し
+  const handleSelectHistorySong = (item: SongHistoryItem) => {
+    setSongTitle(item.title);
+    setAccompanimentAudioUrl(item.audioUrl);
+    setBgImageUrl(item.bgImageUrl);
+    setLyricsData(item.lyrics);
+    setIsPlayingMode(true);
+  };
+
+  // 履歴項目の削除
+  const handleDeleteHistorySong = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (confirm('この曲を履歴から削除しますか？')) {
+      const updated = removeSongHistory(id);
+      setSongHistory(updated);
+    }
+  };
 
   useEffect(() => {
     const handleUrlParams = async () => {
@@ -114,7 +153,7 @@ export default function Home() {
           window.history.replaceState(null, '', window.location.pathname);
 
           if (audio) {
-            await startKaraokeWithData(null, audio, image, parsedLyrics);
+            await startKaraokeWithData(null, audio, image, parsedLyrics, title);
           }
         }
       } catch (err) {
@@ -148,14 +187,14 @@ export default function Home() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      justifyContent: 'center',
-      padding: '16px',
+      justifyContent: 'flex-start',
+      padding: '20px 16px 40px',
       boxSizing: 'border-box'
     }}>
-      <div style={{ width: '100%', maxWidth: '440px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <div style={{ width: '100%', maxWidth: '460px', margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
         
         {/* ロゴ画像 ＆ バージョンヘッダー */}
-        <header style={{ textAlign: 'center', margin: '8px 0 16px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <header style={{ textAlign: 'center', margin: '4px 0 8px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <img
             src="logo_cropped.png"
             alt="AMU KARA Logo"
@@ -172,13 +211,119 @@ export default function Home() {
             <p style={{ fontSize: '12px', color: '#64748b', margin: 0, fontWeight: 'bold', letterSpacing: '0.05em' }}>
               全自動 AI ボーカル抽出 ＆ 高精度カラオケ
             </p>
-            <span style={{ fontSize: '10px', background: '#ec4899', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+            <span style={{ fontSize: '10px', background: 'linear-gradient(90deg,#ec4899,#0284c7)', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
               {APP_VERSION}
             </span>
           </div>
         </header>
 
-        {/* メイン白基調カード */}
+        {/* 最近歌った曲 / マイソングリスト (履歴機能) */}
+        {songHistory.length > 0 && (
+          <div style={{
+            width: '100%',
+            backgroundColor: '#ffffff',
+            border: '2px solid #e2e8f0',
+            borderRadius: '24px',
+            padding: '20px',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.04)',
+            boxSizing: 'border-box'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '16px' }}>🎵</span>
+                <h2 style={{ fontSize: '14px', fontWeight: 'bold', color: '#0f172a', margin: 0 }}>
+                  歌った曲のマイリスト ({songHistory.length}曲)
+                </h2>
+              </div>
+              <span style={{ fontSize: '10px', color: '#0284c7', fontWeight: 'bold', background: '#e0f2fe', padding: '2px 8px', borderRadius: '10px' }}>
+                ⚡ 秒速タップ再生
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
+              {songHistory.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => handleSelectHistorySong(item)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justify: 'space-between',
+                    padding: '10px 12px',
+                    backgroundColor: '#f8fafc',
+                    borderRadius: '16px',
+                    border: '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxSizing: 'border-box'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#ec4899';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#f8fafc';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', overflow: 'hidden' }}>
+                    {item.bgImageUrl ? (
+                      <img src={item.bgImageUrl} alt="" style={{ width: '44px', height: '44px', borderRadius: '12px', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'linear-gradient(135deg,#ec4899,#0284c7)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: '18px' }}>
+                        🎵
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.title}
+                      </span>
+                      <span style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                        {item.lyrics && item.lyrics.length > 0 ? `📝 歌詞データあり (${item.lyrics.length}行)` : '🎵 音源保存済み'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button
+                      type="button"
+                      style={{
+                        padding: '6px 12px',
+                        background: 'linear-gradient(90deg,#ec4899,#a855f7)',
+                        color: '#fff',
+                        fontSize: '11px',
+                        fontWeight: 'bold',
+                        border: 'none',
+                        borderRadius: '14px',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 8px rgba(236,72,153,0.3)'
+                      }}
+                    >
+                      🎤 歌う
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteHistorySong(e, item.id)}
+                      title="リストから削除"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#94a3b8',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        padding: '4px'
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* メイン白基調カード（ブックマークレット連携） */}
         <div style={{
           width: '100%',
           backgroundColor: '#ffffff',
@@ -206,7 +351,7 @@ export default function Home() {
               <span>Suno全自動連携ブックマークレット</span>
             </div>
             <p style={{ fontSize: '11px', color: '#64748b', lineHeight: '1.5', marginBottom: '12px' }}>
-              下のコードをコピーしてブラウザのブックマークのURL欄に保存してください。Sunoの曲ページ（suno.com/song/...）で押すと1タップで自動スタートします。
+              下のコードをコピーしてブラウザのブックマークのURL欄に保存してください。Sunoの曲ページ（suno.com/song/...）で押すと1タップで自動スタートし、マイリストに追加されます。
             </p>
 
             <textarea
