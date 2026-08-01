@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { LyricLine } from '@/lib/srtParser';
+import { saveAudioCache, getAudioCache } from '@/lib/audioCache';
 
 interface KaraokePlayerProps {
   audioUrl: string;
@@ -84,13 +85,46 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
   const [isVocalCut, setIsVocalCut] = useState(true);
   const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
-  // 5バンド EQ
+  // 5バンド EQ パネル表示切り替え & 自動保存付き 5バンド EQ 値 (-12 ~ +12 dB)
   const [showEqPanel, setShowEqPanel] = useState(false);
   const [eq60, setEq60] = useState(0);
   const [eq250, setEq250] = useState(0);
   const [eq1000, setEq1000] = useState(0);
   const [eq4000, setEq4000] = useState(0);
   const [eq12000, setEq12000] = useState(0);
+
+  // 初回ロード時に EQ 保存設定を復元
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('amu_kara_eq_settings_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.eq60 === 'number') setEq60(parsed.eq60);
+        if (typeof parsed.eq250 === 'number') setEq250(parsed.eq250);
+        if (typeof parsed.eq1000 === 'number') setEq1000(parsed.eq1000);
+        if (typeof parsed.eq4000 === 'number') setEq4000(parsed.eq4000);
+        if (typeof parsed.eq12000 === 'number') setEq12000(parsed.eq12000);
+      }
+    } catch (e) {
+      console.warn('Failed to load saved EQ settings:', e);
+    }
+  }, []);
+
+  // EQ 設定が変更されたら localStorage に自動保存
+  const saveEqSettings = (newEq: { eq60?: number; eq250?: number; eq1000?: number; eq4000?: number; eq12000?: number }) => {
+    try {
+      const updated = {
+        eq60: newEq.eq60 !== undefined ? newEq.eq60 : eq60,
+        eq250: newEq.eq250 !== undefined ? newEq.eq250 : eq250,
+        eq1000: newEq.eq1000 !== undefined ? newEq.eq1000 : eq1000,
+        eq4000: newEq.eq4000 !== undefined ? newEq.eq4000 : eq4000,
+        eq12000: newEq.eq12000 !== undefined ? newEq.eq12000 : eq12000,
+      };
+      localStorage.setItem('amu_kara_eq_settings_v1', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save EQ settings:', e);
+    }
+  };
 
   // Node Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -105,7 +139,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
   const animFrameIdRef = useRef<number | null>(null);
 
-  // オフライン高音質プリレンダリング処理
+  // オフライン高音質プリレンダリング処理 ＋ IndexedDB キャッシュ判定
   useEffect(() => {
     let isMounted = true;
     let createdOriginalUrl = '';
@@ -114,14 +148,42 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     const processAudioOffline = async () => {
       try {
         setIsProcessing(true);
-        setProcessingProgress(10);
+        setProcessingProgress(15);
+        setProcessingStatus('キャッシュを確認中...');
+
+        // 1. IndexedDB キャッシュを判定
+        const cachedBlob = await getAudioCache(audioUrl);
+        if (cachedBlob && isMounted) {
+          setProcessingProgress(90);
+          setProcessingStatus('⚡ 保存済みキャッシュから秒速ロード中...');
+
+          // 原曲取得
+          const res = await fetch(audioUrl);
+          const arrayBuffer = await res.arrayBuffer();
+          const origBlob = new Blob([arrayBuffer], { type: 'audio/mp3' });
+          createdOriginalUrl = URL.createObjectURL(origBlob);
+          setOriginalBlobUrl(createdOriginalUrl);
+
+          createdInstUrl = URL.createObjectURL(cachedBlob);
+          setInstBlobUrl(createdInstUrl);
+
+          setProcessingProgress(100);
+          setProcessingStatus('キャッシュから読み込み完了！');
+          setTimeout(() => {
+            if (isMounted) setIsProcessing(false);
+          }, 300);
+          return;
+        }
+
+        // 2. キャッシュがない場合、新規ダウンロード ＆ 事前バッチ計算
+        setProcessingProgress(25);
         setProcessingStatus('原音データをダウンロード中...');
 
         const res = await fetch(audioUrl);
         const arrayBuffer = await res.arrayBuffer();
 
         if (!isMounted) return;
-        setProcessingProgress(35);
+        setProcessingProgress(45);
         setProcessingStatus('AI音響波形を解析中...');
 
         const origBlob = new Blob([arrayBuffer], { type: 'audio/mp3' });
@@ -134,7 +196,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         await tempCtx.close();
 
         if (!isMounted) return;
-        setProcessingProgress(60);
+        setProcessingProgress(70);
         setProcessingStatus('事前バッチ・ボーカル分離レンダリング中...');
 
         const offlineCtx = new OfflineAudioContext(
@@ -204,12 +266,15 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
         source.start(0);
 
-        setProcessingProgress(85);
+        setProcessingProgress(88);
         setProcessingStatus('高音質 WAV 伴奏ファイルを生成中...');
         const renderedBuffer = await offlineCtx.startRendering();
 
         const instBlob = audioBufferToWavBlob(renderedBuffer);
         createdInstUrl = URL.createObjectURL(instBlob);
+
+        // 次回の超高速ロード用に IndexedDB に保存
+        await saveAudioCache(audioUrl, instBlob);
 
         if (!isMounted) return;
         setInstBlobUrl(createdInstUrl);
@@ -237,7 +302,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
     };
   }, [audioUrl]);
 
-  // リアルタイム 5バンド EQ ＋ クッキリはっきり分析ビジュアライザー描画
+  // リアルタイム 5バンド EQ ＋ クッキリ直角バー分析ビジュアライザー描画
   useEffect(() => {
     if (isProcessing) return;
 
@@ -290,7 +355,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
 
     setupAudioNodes();
 
-    // Canvas 描画（ぼかしなし・クッキリソリッド描画）
+    // Canvas 描画（直角ソリッド長方形）
     const canvas = canvasRef.current;
     if (!canvas) return;
     const canvasCtx = canvas.getContext('2d');
@@ -311,10 +376,8 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
       const width = canvas.width;
       const height = canvas.height;
 
-      // 画面クリア
       canvasCtx.clearRect(0, 0, width, height);
 
-      // ぼかし効果(shadowBlur)を完全にゼロにし、はっきりと描画
       canvasCtx.shadowBlur = 0;
       canvasCtx.shadowOffsetX = 0;
       canvasCtx.shadowOffsetY = 0;
@@ -327,17 +390,16 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         const barHeightPercent = isPlaying ? (dataArray[i] / 255) : 0.05;
         const barHeight = Math.max(4, barHeightPercent * height * 0.88);
 
-        // 白・AIクッキリ・シャープグラデーション (ピンク -> AI紫 -> AIアクアブルー)
         const gradient = canvasCtx.createLinearGradient(0, height, 0, 0);
-        gradient.addColorStop(0, '#db2777'); // 濃いAIピンク
-        gradient.addColorStop(0.5, '#9333ea'); // AIパープル
-        gradient.addColorStop(1, '#0284c7'); // AIブルー
+        gradient.addColorStop(0, '#db2777');
+        gradient.addColorStop(0.5, '#9333ea');
+        gradient.addColorStop(1, '#0284c7');
 
         canvasCtx.fillStyle = gradient;
 
         const y = height - barHeight;
 
-        // 角がある完全な直角ソリッド長方形バーを描画
+        // 直角ソリッド長方形バーを描画
         canvasCtx.fillRect(x, y, barWidth, barHeight);
 
         x += barWidth + 3;
@@ -436,7 +498,6 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         ) : (
           <div style={{ width: '100%', height: '100%', background: 'radial-gradient(circle at 50% 30%, #f1f5f9 0%, #e2e8f0 100%)' }} />
         )}
-        {/* AIメッシュグラデーションオーバーレイ */}
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 20% 20%, rgba(236,72,153,0.08) 0%, transparent 40%), radial-gradient(circle at 80% 80%, rgba(56,189,248,0.1) 0%, transparent 40%)' }} />
       </div>
 
@@ -446,7 +507,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
           <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'linear-gradient(135deg,#ec4899,#0284c7)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 25px rgba(236,72,153,0.3)', animation: 'pulse 1.5s infinite alternate' }}>
             <span style={{ fontSize: '32px' }}>🎵</span>
           </div>
-          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '24px', color: '#0f172a' }}>高音質AI伴奏を生成中...</h2>
+          <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginTop: '24px', color: '#0f172a' }}>高音質AI伴奏をロード中...</h2>
           <p style={{ fontSize: '13px', color: '#64748b', marginTop: '6px', marginBottom: '24px' }}>{processingStatus}</p>
 
           <div style={{ width: '100%', maxWidth: '320px', height: '10px', backgroundColor: '#e2e8f0', borderRadius: '5px', overflow: 'hidden', border: '1px solid #cbd5e1' }}>
@@ -461,7 +522,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#475569', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
         <div style={{ textAlign: 'center', maxWidth: '45%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: 'linear-gradient(90deg,#ec4899,#0284c7)', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold', marginTop: '2px' }}>v5.1.0 (Sharp Visualizer Bar)</span>
+          <span style={{ fontSize: '9px', background: 'linear-gradient(90deg,#ec4899,#0284c7)', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold', marginTop: '2px' }}>v6.0.0 (Cache & Auto EQ)</span>
         </div>
         
         {/* 原曲 ⇄ 伴奏シームレス聞き比べボタン */}
@@ -474,7 +535,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
       <div style={{ position: 'relative', zIndex: 10, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px 20px', textAlign: 'center' }}>
         {bgImageUrl && <img src={bgImageUrl} alt="" style={{ width: '95px', height: '95px', borderRadius: '20px', objectFit: 'cover', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', marginBottom: '12px', border: '3px solid #ffffff' }} />}
         
-        {/* はっきり・クッキリ見えるソリッド・ビジュアライザー (Canvas) */}
+        {/* 直角ソリッドビジュアライザー (Canvas) */}
         <div style={{ width: '100%', maxWidth: '360px', height: '40px', marginBottom: '12px', display: 'flex', justifyContent: 'center', alignItems: 'flex-end', background: '#ffffff', borderRadius: '12px', padding: '4px 10px', border: '2px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
           <canvas ref={canvasRef} width={320} height={32} style={{ display: 'block' }} />
         </div>
@@ -510,8 +571,11 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
         {showEqPanel && (
           <div style={{ background: '#ffffff', padding: '12px 14px', borderRadius: '16px', border: '2px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#db2777' }}>🎛️ 5バンド・イコライザー調整 (EQ)</span>
-              <button type="button" onClick={() => { setEq60(0); setEq250(0); setEq1000(0); setEq4000(0); setEq12000(0); }} style={{ fontSize: '10px', background: '#cbd5e1', color: '#0f172a', border: 'none', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}>リセット</button>
+              <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#db2777' }}>🎛️ 5バンド・イコライザー (自動保存中)</span>
+              <button type="button" onClick={() => { 
+                setEq60(0); setEq250(0); setEq1000(0); setEq4000(0); setEq12000(0); 
+                saveEqSettings({ eq60: 0, eq250: 0, eq1000: 0, eq4000: 0, eq12000: 0 });
+              }} style={{ fontSize: '10px', background: '#cbd5e1', color: '#0f172a', border: 'none', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}>リセット</button>
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', fontSize: '10px' }}>
@@ -522,7 +586,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
                   <span style={{ color: '#db2777', fontWeight: 'bold' }}>60Hz</span>
                   <span style={{ fontSize: '9px', color: '#db2777', fontWeight: 'bold' }}>{eq60 > 0 ? `+${eq60}` : eq60}dB</span>
                 </div>
-                <input type="range" min={-12} max={12} value={eq60} onChange={(e) => setEq60(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#db2777' }} />
+                <input type="range" min={-12} max={12} value={eq60} onChange={(e) => { const val = parseInt(e.target.value); setEq60(val); saveEqSettings({ eq60: val }); }} style={{ width: '100%', accentColor: '#db2777' }} />
               </div>
 
               {/* 250Hz */}
@@ -532,7 +596,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
                   <span style={{ color: '#c026d3', fontWeight: 'bold' }}>250Hz</span>
                   <span style={{ fontSize: '9px', color: '#c026d3', fontWeight: 'bold' }}>{eq250 > 0 ? `+${eq250}` : eq250}dB</span>
                 </div>
-                <input type="range" min={-12} max={12} value={eq250} onChange={(e) => setEq250(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#c026d3' }} />
+                <input type="range" min={-12} max={12} value={eq250} onChange={(e) => { const val = parseInt(e.target.value); setEq250(val); saveEqSettings({ eq250: val }); }} style={{ width: '100%', accentColor: '#c026d3' }} />
               </div>
 
               {/* 1kHz */}
@@ -542,7 +606,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
                   <span style={{ color: '#9333ea', fontWeight: 'bold' }}>1kHz</span>
                   <span style={{ fontSize: '9px', color: '#9333ea', fontWeight: 'bold' }}>{eq1000 > 0 ? `+${eq1000}` : eq1000}dB</span>
                 </div>
-                <input type="range" min={-12} max={12} value={eq1000} onChange={(e) => setEq1000(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#9333ea' }} />
+                <input type="range" min={-12} max={12} value={eq1000} onChange={(e) => { const val = parseInt(e.target.value); setEq1000(val); saveEqSettings({ eq1000: val }); }} style={{ width: '100%', accentColor: '#9333ea' }} />
               </div>
 
               {/* 4kHz */}
@@ -552,7 +616,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
                   <span style={{ color: '#0891b2', fontWeight: 'bold' }}>4kHz</span>
                   <span style={{ fontSize: '9px', color: '#0891b2', fontWeight: 'bold' }}>{eq4000 > 0 ? `+${eq4000}` : eq4000}dB</span>
                 </div>
-                <input type="range" min={-12} max={12} value={eq4000} onChange={(e) => setEq4000(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#0891b2' }} />
+                <input type="range" min={-12} max={12} value={eq4000} onChange={(e) => { const val = parseInt(e.target.value); setEq4000(val); saveEqSettings({ eq4000: val }); }} style={{ width: '100%', accentColor: '#0891b2' }} />
               </div>
 
               {/* 12kHz */}
@@ -562,7 +626,7 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
                   <span style={{ color: '#0284c7', fontWeight: 'bold' }}>12kHz</span>
                   <span style={{ fontSize: '9px', color: '#0284c7', fontWeight: 'bold' }}>{eq12000 > 0 ? `+${eq12000}` : eq12000}dB</span>
                 </div>
-                <input type="range" min={-12} max={12} value={eq12000} onChange={(e) => setEq12000(parseInt(e.target.value))} style={{ width: '100%', accentColor: '#0284c7' }} />
+                <input type="range" min={-12} max={12} value={eq12000} onChange={(e) => { const val = parseInt(e.target.value); setEq12000(val); saveEqSettings({ eq12000: val }); }} style={{ width: '100%', accentColor: '#0284c7' }} />
               </div>
             </div>
           </div>
