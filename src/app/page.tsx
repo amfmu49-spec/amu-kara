@@ -7,7 +7,7 @@ import { SUNO_BOOKMARKLET_SCRIPT } from '@/lib/bookmarklet';
 import { separateVocalWithFreeAI } from '@/lib/demucsAi';
 import { getSongHistory, saveSongHistory, removeSongHistory, SongHistoryItem } from '@/lib/songHistory';
 
-export const APP_VERSION = 'v7.1.0 (AMUtune Official Banner)';
+export const APP_VERSION = 'v7.2.0 (AMU KARA)';
 
 export default function Home() {
   const [songTitle, setSongTitle] = useState<string>('');
@@ -196,16 +196,15 @@ export default function Home() {
         {/* ロゴ画像 ＆ バージョンヘッダー */}
         <header style={{ textAlign: 'center', margin: '4px 0 8px 0', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <img
-            src="amu_tune_banner.png"
-            alt="AMUtune Banner"
+            src="logo_cropped.png"
+            alt="AMU KARA Logo"
             style={{
-              maxWidth: '340px',
-              width: '92%',
+              maxWidth: '260px',
+              width: '80%',
               height: 'auto',
               borderRadius: '16px',
-              boxShadow: '0 10px 30px rgba(249, 115, 22, 0.35)',
-              display: 'block',
-              border: '2px solid rgba(249, 115, 22, 0.5)'
+              boxShadow: '0 10px 25px rgba(236, 72, 153, 0.25)',
+              display: 'block'
             }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}>

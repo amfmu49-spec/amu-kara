@@ -520,10 +520,9 @@ export default function KaraokePlayer({ audioUrl, bgImageUrl, lyrics, title, onR
       {/* Header (White AI Style) */}
       <header style={{ position: 'relative', zIndex: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(226,232,240,0.8)', backdropFilter: 'blur(16px)', backgroundColor: 'rgba(255,255,255,0.85)', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
         <button type="button" onClick={onReset} style={{ background: 'none', border: 'none', color: '#475569', fontSize: '14px', fontWeight: 'bold', cursor: 'pointer' }}>← 戻る</button>
-        <div style={{ textAlign: 'center', maxWidth: '50%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <img src="amu_tune_banner.png" alt="AMUtune" style={{ height: '24px', width: 'auto', borderRadius: '6px', marginBottom: '2px' }} />
-          <h1 style={{ fontSize: '13px', fontWeight: 'bold', color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
-          <span style={{ fontSize: '9px', background: 'linear-gradient(90deg,#ec4899,#0284c7)', color: '#fff', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold', marginTop: '2px' }}>v7.1.0</span>
+        <div style={{ textAlign: 'center', maxWidth: '45%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <h1 style={{ fontSize: '15px', fontWeight: 'bold', color: '#0f172a', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title || 'AMU KARA'}</h1>
+          <span style={{ fontSize: '9px', background: 'linear-gradient(90deg,#ec4899,#0284c7)', color: '#fff', padding: '2px 8px', borderRadius: '10px', fontWeight: 'bold', marginTop: '2px' }}>v7.2.0</span>
         </div>
         
         {/* 原曲 ⇄ 伴奏シームレス聞き比べボタン */}
