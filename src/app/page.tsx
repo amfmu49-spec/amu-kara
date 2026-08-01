@@ -248,7 +248,7 @@ export default function Home() {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    justify: 'space-between',
+                    justifyContent: 'space-between',
                     padding: '10px 12px',
                     backgroundColor: '#f8fafc',
                     borderRadius: '16px',
